@@ -1,0 +1,41 @@
+﻿name: Deploy Backend to Windows Docker Server
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - "backend/**"
+      - "docker/**"
+      - "docker-compose.yml"
+      - ".env.example"
+      - ".github/workflows/deploy-backend.yml"
+
+jobs:
+  deploy:
+    runs-on: self-hosted
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Show Docker version
+        shell: powershell
+        run: |
+          docker --version
+          docker compose version
+
+      - name: Stop old containers
+        shell: powershell
+        run: |
+          docker compose down
+
+      - name: Build and start containers
+        shell: powershell
+        run: |
+          docker compose up -d --build
+
+      - name: Show container status
+        shell: powershell
+        run: |
+          docker compose ps
