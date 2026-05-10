@@ -3,6 +3,8 @@ from typing import Optional
 
 from sqlmodel import Field, SQLModel
 
+from app.utils.time import kst_now
+
 
 class AppUser(SQLModel, table=True):
     __tablename__ = "app_users"
@@ -13,8 +15,8 @@ class AppUser(SQLModel, table=True):
     name: str = Field(max_length=100)
     role: str = Field(default="parent", max_length=30)
     is_active: bool = True
-    created_at: datetime = Field(default_factory=datetime.utcnow)
-    updated_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=kst_now)
+    updated_at: datetime = Field(default_factory=kst_now)
 
 
 class Camera(SQLModel, table=True):
@@ -29,7 +31,7 @@ class Camera(SQLModel, table=True):
     resolution: Optional[str] = None
     fps: Optional[int] = None
     analysis_enabled: bool = True
-    created_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=kst_now)
 
 
 class EmotionEvent(SQLModel, table=True):
@@ -42,8 +44,8 @@ class EmotionEvent(SQLModel, table=True):
     confidence: float
     need: Optional[str] = None
     message: Optional[str] = None
-    captured_at: datetime = Field(default_factory=datetime.utcnow)
-    created_at: datetime = Field(default_factory=datetime.utcnow)
+    captured_at: datetime = Field(default_factory=kst_now)
+    created_at: datetime = Field(default_factory=kst_now)
 
 
 class Alert(SQLModel, table=True):
@@ -55,7 +57,7 @@ class Alert(SQLModel, table=True):
     title: str
     message: Optional[str] = None
     is_read: bool = False
-    created_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=kst_now)
 
 
 class EnvironmentState(SQLModel, table=True):
@@ -67,7 +69,7 @@ class EnvironmentState(SQLModel, table=True):
     humidity: float
     light: str = "적정"
     air_quality: str = "좋음"
-    created_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=kst_now)
 
 
 class DeviceState(SQLModel, table=True):
@@ -79,4 +81,4 @@ class DeviceState(SQLModel, table=True):
     type: str
     status: str = "off"
     description: Optional[str] = None
-    updated_at: datetime = Field(default_factory=datetime.utcnow)
+    updated_at: datetime = Field(default_factory=kst_now)
