@@ -36,6 +36,7 @@ function HomePage() {
   const environment = data?.environment
   const cameras = data?.cameras
   const alerts = data?.alerts || []
+  const confidencePercent = Math.round((currentEmotion?.confidence || 0) * 100)
 
   return (
     <main className='px-5 py-6'>
@@ -80,12 +81,12 @@ function HomePage() {
           <div className='mt-4'>
             <div className='mb-2 flex justify-between text-xs text-slate-400'>
               <span>AI 분석 신뢰도</span>
-              <span>{Math.round((currentEmotion?.confidence || 0) * 100)}%</span>
+              <span>{confidencePercent}%</span>
             </div>
             <div className='h-2 rounded-full bg-slate-800'>
               <div
                 className='h-2 rounded-full bg-blue-400'
-                style={{ width: ${Math.round((currentEmotion?.confidence || 0) * 100)}% }}
+                style={{ width: confidencePercent + '%' }}
               />
             </div>
           </div>
