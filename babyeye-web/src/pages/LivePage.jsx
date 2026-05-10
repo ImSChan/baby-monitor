@@ -139,10 +139,10 @@ function LivePage() {
       </section>
 
       <Card className='mb-5'>
-        <div className='mb-4 flex items-center justify-between'>
-          <div>
+        <div className='mb-4 flex items-start justify-between gap-3'>
+          <div className='min-w-0'>
             <h2 className='text-lg font-bold'>카메라 목록</h2>
-            <p className='mt-1 text-sm text-slate-400'>
+            <p className='mt-1 text-sm leading-5 text-slate-400'>
               등록된 홈캠 또는 테스트 카메라를 관리합니다.
             </p>
           </div>
@@ -150,10 +150,15 @@ function LivePage() {
           <button
             type='button'
             onClick={() => setIsFormOpen((prev) => !prev)}
-            className='flex h-10 items-center gap-2 rounded-2xl bg-blue-500 px-4 text-sm font-semibold text-white transition hover:bg-blue-400'
+            className={
+              'inline-flex shrink-0 items-center gap-1.5 rounded-full border px-3 py-2 text-xs font-semibold transition ' +
+              (isFormOpen
+                ? 'border-slate-600 bg-slate-800 text-slate-300 hover:bg-slate-700'
+                : 'border-blue-400/40 bg-blue-500/15 text-blue-200 hover:bg-blue-500/25')
+            }
           >
-            {isFormOpen ? <X size={18} /> : <Plus size={18} />}
-            {isFormOpen ? '닫기' : '추가'}
+            {isFormOpen ? <X size={15} /> : <Plus size={15} />}
+            <span>{isFormOpen ? '닫기' : '카메라 추가'}</span>
           </button>
         </div>
 
