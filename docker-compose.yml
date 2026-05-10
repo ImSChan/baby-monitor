@@ -1,4 +1,5 @@
 services:
+services:
   nginx:
     image: nginx:1.27-alpine
     container_name: baby-monitor-nginx
@@ -66,8 +67,8 @@ services:
       POSTGRES_DB: baby_monitor
       POSTGRES_USER: baby_user
       POSTGRES_PASSWORD: baby_password
-    expose:
-      - "5432"
+    ports:
+      - "127.0.0.1:5432:5432"
     volumes:
       - baby_monitor_postgres_data:/var/lib/postgresql/data
     healthcheck:
