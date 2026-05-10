@@ -2,6 +2,7 @@
 from sqlmodel import Session, select
 
 from app.database import get_session
+from app.deps import get_current_user_id
 from app.models import Camera
 from app.schemas import CameraCreate
 
@@ -9,16 +10,25 @@ router = APIRouter()
 
 
 @router.get("")
-def get_cameras(session: Session = Depends(get_session)):
-    return session.exec(select(Camera).order_by(Camera.id)).all()
+def get_cameras(
+    session: Session = Depends(get_session),
+    current_user_id: int = Depends(get_current_user_id),
+):
+    return session.exec(
+        select(Camera)
+        .where(Camera.user_id == current_user_id)
+        .order_by(Camera.id)
+    ).all()
 
 
 @router.post("")
 def create_camera(
     camera_data: CameraCreate,
     session: Session = Depends(get_session),
+    current_user_id: int = Depends(get_current_user_id),
 ):
     camera = Camera(
+        user_id=current_user_id,
         name=camera_data.name,
         location=camera_data.location,
         stream_url=camera_data.stream_url,
@@ -36,8 +46,16 @@ def create_camera(
 
 
 @router.get("/{camera_id}")
-def get_camera(camera_id: int, session: Session = Depends(get_session)):
-    camera = session.get(Camera, camera_id)
+def get_camera(
+    camera_id: int,
+    session: Session = Depends(get_session),
+    current_user_id: int = Depends(get_current_user_id),
+):
+    camera = session.exec(
+        select(Camera)
+        .where(Camera.id == camera_id)
+        .where(Camera.user_id == current_user_id)
+    ).first()
 
     if camera is None:
         raise HTTPException(status_code=404, detail="Camera not found")

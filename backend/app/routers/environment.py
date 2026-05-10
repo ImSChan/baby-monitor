@@ -2,6 +2,7 @@
 from sqlmodel import Session, select
 
 from app.database import get_session
+from app.deps import get_current_user_id
 from app.models import EnvironmentState
 from app.schemas import EnvironmentCreate
 
@@ -9,9 +10,14 @@ router = APIRouter()
 
 
 @router.get("/latest")
-def get_latest_environment(session: Session = Depends(get_session)):
+def get_latest_environment(
+    session: Session = Depends(get_session),
+    current_user_id: int = Depends(get_current_user_id),
+):
     return session.exec(
-        select(EnvironmentState).order_by(EnvironmentState.created_at.desc())
+        select(EnvironmentState)
+        .where(EnvironmentState.user_id == current_user_id)
+        .order_by(EnvironmentState.created_at.desc())
     ).first()
 
 
@@ -19,8 +25,10 @@ def get_latest_environment(session: Session = Depends(get_session)):
 def create_environment_state(
     environment_data: EnvironmentCreate,
     session: Session = Depends(get_session),
+    current_user_id: int = Depends(get_current_user_id),
 ):
     state = EnvironmentState(
+        user_id=current_user_id,
         temperature=environment_data.temperature,
         humidity=environment_data.humidity,
         light=environment_data.light,

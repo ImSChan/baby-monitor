@@ -2,6 +2,7 @@
 from sqlmodel import Session, select
 
 from app.database import get_session
+from app.deps import get_current_user_id
 from app.models import Alert
 from app.schemas import AlertCreate
 
@@ -9,9 +10,15 @@ router = APIRouter()
 
 
 @router.get("")
-def get_alerts(session: Session = Depends(get_session)):
+def get_alerts(
+    session: Session = Depends(get_session),
+    current_user_id: int = Depends(get_current_user_id),
+):
     return session.exec(
-        select(Alert).order_by(Alert.created_at.desc()).limit(50)
+        select(Alert)
+        .where(Alert.user_id == current_user_id)
+        .order_by(Alert.created_at.desc())
+        .limit(50)
     ).all()
 
 
@@ -19,8 +26,10 @@ def get_alerts(session: Session = Depends(get_session)):
 def create_alert(
     alert_data: AlertCreate,
     session: Session = Depends(get_session),
+    current_user_id: int = Depends(get_current_user_id),
 ):
     alert = Alert(
+        user_id=current_user_id,
         level=alert_data.level,
         title=alert_data.title,
         message=alert_data.message,

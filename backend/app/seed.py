@@ -1,20 +1,40 @@
 ﻿from sqlmodel import Session, select
 
 from app.database import create_db_and_tables, engine
-from app.models import Alert, Camera, DeviceState, EmotionEvent, EnvironmentState
+from app.models import Alert, AppUser, Camera, DeviceState, EmotionEvent, EnvironmentState
 
 
 def seed():
     create_db_and_tables()
 
     with Session(engine) as session:
-        existing_camera = session.exec(select(Camera)).first()
+        user = session.exec(
+            select(AppUser).where(AppUser.email == "demo@local")
+        ).first()
+
+        if user is None:
+            user = AppUser(
+                id=1,
+                email="demo@local",
+                password_hash=None,
+                name="Demo User",
+                role="parent",
+                is_active=True,
+            )
+            session.add(user)
+            session.commit()
+            session.refresh(user)
+
+        existing_camera = session.exec(
+            select(Camera).where(Camera.user_id == user.id)
+        ).first()
 
         if existing_camera:
             print("Seed data already exists.")
             return
 
         camera = Camera(
+            user_id=user.id,
             name="아기 방 카메라",
             location="침실",
             stream_url=None,
@@ -30,6 +50,7 @@ def seed():
 
         session.add(
             EmotionEvent(
+                user_id=user.id,
                 camera_id=camera.id,
                 emotion="수면 중",
                 confidence=0.97,
@@ -40,6 +61,7 @@ def seed():
 
         session.add(
             EnvironmentState(
+                user_id=user.id,
                 temperature=24.0,
                 humidity=45.0,
                 light="적정",
@@ -49,6 +71,7 @@ def seed():
 
         session.add(
             Alert(
+                user_id=user.id,
                 level="normal",
                 title="수면 상태 안정",
                 message="특이 상황 없이 안정적인 수면 상태입니다.",
@@ -57,6 +80,7 @@ def seed():
 
         session.add(
             DeviceState(
+                user_id=user.id,
                 name="수면 조명",
                 type="light",
                 status="on",
@@ -66,6 +90,7 @@ def seed():
 
         session.add(
             DeviceState(
+                user_id=user.id,
                 name="가습기",
                 type="humidifier",
                 status="on",

@@ -4,10 +4,24 @@ from typing import Optional
 from sqlmodel import Field, SQLModel
 
 
+class AppUser(SQLModel, table=True):
+    __tablename__ = "app_users"
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    email: str = Field(index=True, unique=True, max_length=255)
+    password_hash: Optional[str] = Field(default=None, max_length=255)
+    name: str = Field(max_length=100)
+    role: str = Field(default="parent", max_length=30)
+    is_active: bool = True
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+    updated_at: datetime = Field(default_factory=datetime.utcnow)
+
+
 class Camera(SQLModel, table=True):
     __tablename__ = "cameras"
 
     id: Optional[int] = Field(default=None, primary_key=True)
+    user_id: int = Field(foreign_key="app_users.id", index=True)
     name: str
     location: Optional[str] = None
     stream_url: Optional[str] = None
@@ -22,7 +36,8 @@ class EmotionEvent(SQLModel, table=True):
     __tablename__ = "emotion_events"
 
     id: Optional[int] = Field(default=None, primary_key=True)
-    camera_id: Optional[int] = Field(default=None, foreign_key="cameras.id")
+    user_id: int = Field(foreign_key="app_users.id", index=True)
+    camera_id: Optional[int] = Field(default=None, foreign_key="cameras.id", index=True)
     emotion: str
     confidence: float
     need: Optional[str] = None
@@ -35,6 +50,7 @@ class Alert(SQLModel, table=True):
     __tablename__ = "alerts"
 
     id: Optional[int] = Field(default=None, primary_key=True)
+    user_id: int = Field(foreign_key="app_users.id", index=True)
     level: str = "normal"
     title: str
     message: Optional[str] = None
@@ -46,6 +62,7 @@ class EnvironmentState(SQLModel, table=True):
     __tablename__ = "environment_states"
 
     id: Optional[int] = Field(default=None, primary_key=True)
+    user_id: int = Field(foreign_key="app_users.id", index=True)
     temperature: float
     humidity: float
     light: str = "적정"
@@ -57,6 +74,7 @@ class DeviceState(SQLModel, table=True):
     __tablename__ = "device_states"
 
     id: Optional[int] = Field(default=None, primary_key=True)
+    user_id: int = Field(foreign_key="app_users.id", index=True)
     name: str
     type: str
     status: str = "off"
