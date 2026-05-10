@@ -84,7 +84,7 @@ function EmotionPage() {
                 <div className='h-3 rounded-full bg-slate-800'>
                   <div
                     className='h-3 rounded-full bg-gradient-to-r from-blue-400 to-indigo-400'
-                    style={{ width: ${item.value}% }}
+                    style={{ width: item.value + '%' }}
                   />
                 </div>
               </div>
@@ -155,3 +155,4 @@ function formatTime(value) {
 }
 
 export default EmotionPage
+
