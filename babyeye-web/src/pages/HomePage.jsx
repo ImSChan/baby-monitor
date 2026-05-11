@@ -109,7 +109,7 @@ function HomePage() {
               저장된 영상으로 감정 상태 분석
             </h2>
             <p className='mt-2 text-sm leading-6 text-slate-400'>
-              영상을 업로드하면 브라우저에서 초당 1프레임을 추출하고, 가능한 경우 오디오를 함께 추출해 AI 분석 서버로 전송합니다.
+              영상을 업로드하면 AI 분석 서버로 전송합니다.
             </p>
           </div>
         </div>
