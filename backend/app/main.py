@@ -3,7 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.config import get_settings
 from app.database import create_db_and_tables
-from app.routers import alerts, cameras, dashboard, emotions, environment, smart_home
+from app.routers import alerts, cameras, dashboard, emotions, environment, smart_home, inference
 
 settings = get_settings()
 
@@ -53,3 +53,4 @@ app.include_router(emotions.router, prefix="/api/emotions", tags=["emotions"])
 app.include_router(alerts.router, prefix="/api/alerts", tags=["alerts"])
 app.include_router(environment.router, prefix="/api/environment", tags=["environment"])
 app.include_router(smart_home.router, prefix="/api/smart-home", tags=["smart-home"])
+app.include_router(inference.router, prefix="/api/inference", tags=["inference"])
