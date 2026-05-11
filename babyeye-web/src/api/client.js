@@ -34,6 +34,23 @@ export async function apiPost(path, body) {
   return response.json()
 }
 
+export async function apiPostFormData(path, formData) {
+  const response = await fetch(API_BASE_URL + path, {
+    method: 'POST',
+    headers: {
+      Accept: 'application/json',
+    },
+    body: formData,
+  })
+
+  if (!response.ok) {
+    const message = await safeReadError(response)
+    throw new Error(message || 'API 요청 실패: ' + response.status)
+  }
+
+  return response.json()
+}
+
 async function safeReadError(response) {
   try {
     const data = await response.json()
