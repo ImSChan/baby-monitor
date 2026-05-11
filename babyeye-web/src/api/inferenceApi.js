@@ -1,6 +1,7 @@
 ﻿import { apiPostFormData } from './client'
 
 export function requestMultimodalInference({
+  videoFile,
   audioFile,
   frameFiles,
   cameraId,
@@ -9,6 +10,10 @@ export function requestMultimodalInference({
   durationSeconds,
 }) {
   const formData = new FormData()
+
+  if (videoFile) {
+    formData.append('video_file', videoFile)
+  }
 
   if (audioFile) {
     formData.append('audio_file', audioFile)

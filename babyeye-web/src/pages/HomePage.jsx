@@ -65,6 +65,7 @@ function HomePage() {
       )
 
       const result = await requestMultimodalInference({
+        videoFile: file,
         audioFile: preprocessed.audioFile,
         frameFiles: preprocessed.frameFiles,
         capturedAt: new Date().toISOString(),
