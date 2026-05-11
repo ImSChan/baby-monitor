@@ -43,6 +43,9 @@ function HomePage() {
 
       const preprocessed = await preprocessVideoForInference(file, {
         framesPerSecond: 1,
+        maxFrames: 20,
+        maxWidth: 640,
+        onProgress: setUploadMessage,
       })
 
       if (preprocessed.frameFiles.length === 0 && !preprocessed.audioFile) {

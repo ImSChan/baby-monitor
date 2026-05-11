@@ -1,7 +1,20 @@
 ﻿export async function preprocessVideoForInference(videoFile, options = {}) {
   const framesPerSecond = options.framesPerSecond || 1
+  const maxFrames = options.maxFrames || 20
+  const maxWidth = options.maxWidth || 640
+  const onProgress = options.onProgress || (() => {})
 
-  const frameResult = await extractFramesFromVideo(videoFile, framesPerSecond)
+  onProgress('영상 메타데이터를 불러오는 중입니다...')
+
+  const frameResult = await extractFramesFromVideo(videoFile, {
+    framesPerSecond,
+    maxFrames,
+    maxWidth,
+    onProgress,
+  })
+
+  onProgress('오디오 추출을 시도하는 중입니다...')
+
   const audioFile = await extractAudioBestEffort(videoFile)
 
   return {
@@ -12,7 +25,9 @@
   }
 }
 
-async function extractFramesFromVideo(videoFile, framesPerSecond) {
+async function extractFramesFromVideo(videoFile, options) {
+  const { framesPerSecond, maxFrames, maxWidth, onProgress } = options
+
   const videoUrl = URL.createObjectURL(videoFile)
   const video = document.createElement('video')
 
@@ -20,60 +35,167 @@ async function extractFramesFromVideo(videoFile, framesPerSecond) {
   video.muted = true
   video.playsInline = true
   video.preload = 'auto'
+  video.controls = false
 
-  await waitForLoadedMetadata(video)
+  video.style.position = 'fixed'
+  video.style.left = '-9999px'
+  video.style.top = '-9999px'
+  video.style.width = '1px'
+  video.style.height = '1px'
+  video.style.opacity = '0'
 
-  const durationSeconds = video.duration || 0
-  const canvas = document.createElement('canvas')
-  const context = canvas.getContext('2d')
+  document.body.appendChild(video)
 
-  canvas.width = video.videoWidth || 640
-  canvas.height = video.videoHeight || 360
+  try {
+    video.load()
 
-  const interval = 1 / framesPerSecond
-  const frameFiles = []
-  let frameIndex = 0
+    await waitForEvent(video, 'loadedmetadata', 10000)
 
-  for (let time = 0; time < durationSeconds; time += interval) {
-    const safeTime = Math.min(time, Math.max(durationSeconds - 0.05, 0))
+    if (!Number.isFinite(video.duration) || video.duration <= 0) {
+      throw new Error('영상 길이를 확인할 수 없습니다. 다른 형식의 영상으로 시도해주세요.')
+    }
 
-    await seekVideo(video, safeTime)
+    await waitForEvent(video, 'loadeddata', 10000).catch(() => {
+      // 일부 모바일 브라우저에서는 loadeddata가 늦거나 안 올 수 있으므로 무시
+    })
 
-    context.drawImage(video, 0, 0, canvas.width, canvas.height)
+    const durationSeconds = video.duration
+    const originalWidth = video.videoWidth || 640
+    const originalHeight = video.videoHeight || 360
 
-    const blob = await canvasToBlob(canvas, 'image/jpeg', 0.85)
-    const frameFile = new File(
-      [blob],
-      'frame_' + String(frameIndex).padStart(5, '0') + '.jpg',
-      {
-        type: 'image/jpeg',
-      }
-    )
+    const scale = Math.min(1, maxWidth / originalWidth)
+    const canvasWidth = Math.max(1, Math.round(originalWidth * scale))
+    const canvasHeight = Math.max(1, Math.round(originalHeight * scale))
 
-    frameFiles.push(frameFile)
-    frameIndex += 1
-  }
+    const canvas = document.createElement('canvas')
+    const context = canvas.getContext('2d')
 
-  URL.revokeObjectURL(videoUrl)
+    canvas.width = canvasWidth
+    canvas.height = canvasHeight
 
-  return {
-    frameFiles,
-    durationSeconds,
+    const interval = 1 / framesPerSecond
+    const estimatedFrameCount = Math.ceil(durationSeconds / interval)
+    const targetFrameCount = Math.min(estimatedFrameCount, maxFrames)
+
+    const frameFiles = []
+
+    for (let index = 0; index < targetFrameCount; index += 1) {
+      const time = Math.min(index * interval, Math.max(durationSeconds - 0.1, 0))
+
+      onProgress(
+        '프레임 추출 중입니다... ' +
+          (index + 1) +
+          '/' +
+          targetFrameCount
+      )
+
+      await seekVideoSafely(video, time)
+
+      context.drawImage(video, 0, 0, canvasWidth, canvasHeight)
+
+      const blob = await canvasToBlob(canvas, 'image/jpeg', 0.8)
+      const frameFile = new File(
+        [blob],
+        'frame_' + String(index).padStart(5, '0') + '.jpg',
+        {
+          type: 'image/jpeg',
+        }
+      )
+
+      frameFiles.push(frameFile)
+    }
+
+    return {
+      frameFiles,
+      durationSeconds,
+    }
+  } finally {
+    URL.revokeObjectURL(videoUrl)
+
+    if (video.parentNode) {
+      video.parentNode.removeChild(video)
+    }
   }
 }
 
-function waitForLoadedMetadata(video) {
+function waitForEvent(target, eventName, timeoutMs) {
   return new Promise((resolve, reject) => {
-    video.onloadedmetadata = () => resolve()
-    video.onerror = () => reject(new Error('영상 메타데이터를 불러오지 못했습니다.'))
+    let finished = false
+
+    const timer = setTimeout(() => {
+      if (finished) return
+      finished = true
+      cleanup()
+      reject(new Error(eventName + ' 대기 시간이 초과되었습니다.'))
+    }, timeoutMs)
+
+    function cleanup() {
+      clearTimeout(timer)
+      target.removeEventListener(eventName, onSuccess)
+      target.removeEventListener('error', onError)
+    }
+
+    function onSuccess() {
+      if (finished) return
+      finished = true
+      cleanup()
+      resolve()
+    }
+
+    function onError() {
+      if (finished) return
+      finished = true
+      cleanup()
+      reject(new Error('영상 로드 중 오류가 발생했습니다.'))
+    }
+
+    target.addEventListener(eventName, onSuccess, { once: true })
+    target.addEventListener('error', onError, { once: true })
   })
 }
 
-function seekVideo(video, time) {
-  return new Promise((resolve, reject) => {
-    video.onseeked = () => resolve()
-    video.onerror = () => reject(new Error('영상 프레임 이동 중 오류가 발생했습니다.'))
-    video.currentTime = time
+function seekVideoSafely(video, time) {
+  return new Promise((resolve) => {
+    let done = false
+
+    const timeout = setTimeout(() => {
+      if (done) return
+      done = true
+      cleanup()
+      resolve()
+    }, 3000)
+
+    function cleanup() {
+      clearTimeout(timeout)
+      video.removeEventListener('seeked', onSeeked)
+      video.removeEventListener('timeupdate', onTimeUpdate)
+    }
+
+    function finish() {
+      if (done) return
+      done = true
+      cleanup()
+      resolve()
+    }
+
+    function onSeeked() {
+      finish()
+    }
+
+    function onTimeUpdate() {
+      if (Math.abs(video.currentTime - time) < 0.35) {
+        finish()
+      }
+    }
+
+    video.addEventListener('seeked', onSeeked)
+    video.addEventListener('timeupdate', onTimeUpdate)
+
+    try {
+      video.currentTime = time
+    } catch {
+      finish()
+    }
   })
 }
 
