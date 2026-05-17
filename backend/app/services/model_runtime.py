@@ -224,26 +224,38 @@ def fuse_results(audio_result: dict | None, image_result: dict | None) -> dict:
     need = 'unknown'
     message = '분석 가능한 데이터가 부족합니다.'
 
-    if image_label == 'unhappy' and audio_label == 'hungry':
-        emotion = '배고픔'
-        need = 'feeding'
-        message = '표정과 울음 패턴 기준으로 배고픔으로 인한 불편함이 추정됩니다.'
-    elif image_label == 'happy':
-        emotion = '안정 상태'
-        need = 'stable'
-        message = '표정 분석 기준으로 안정적인 상태로 추정됩니다.'
-    elif image_label == 'normal':
-        emotion = '보통 상태'
-        need = 'observe'
-        message = '현재 상태는 특별한 이상 없이 관찰 가능한 상태로 추정됩니다.'
-    elif image_label == 'unhappy':
+    if image_label == 'happy':
+        emotion = 'happy'
+        need = 'none'
+        message = '아이가 행복한 상태로 추정됩니다.'
+    elif audio_label == 'belly pain':
+        emotion = 'belly pain'
+        need = 'care'
+        message = '배가 아파 우는 것으로 추정됩니다.'
+    elif audio_label == 'burping':
+        emotion = 'burping'
+        need = 'care'
+        message = '트림이 필요한 상태로 추정됩니다.'
+    elif audio_label == 'cold_hot':
+        emotion = 'cold_hot'
+        need = 'environment'
+        message = '덥거나 추워서 불편한 상태로 추정됩니다.'
+    elif audio_label == 'discomfort':
         emotion = '불편함'
         need = 'care'
-        message = '표정 분석 기준으로 불편함이 추정됩니다.'
-    elif audio_label:
-        emotion = audio_label
-        need = 'audio_based'
-        message = '음성 분석 결과를 기준으로 상태를 추정했습니다.'
+        message = '전반적인 불편함을 느끼는 상태로 추정됩니다.'
+    elif audio_label == 'hungry':
+        emotion = '배고픔'
+        need = 'care'
+        message = '배가 고파서 우는 것으로 추정됩니다.'
+    elif audio_label == 'laugh':
+        emotion = '웃음'
+        need = 'none'
+        message = '기분이 좋고 안정적인 상태로 추정됩니다.'
+    elif audio_label == 'tired':
+        emotion = '피곤함'
+        need = 'care'
+        message = '피곤해서 잠투정을 하는 것으로 추정됩니다.'    
 
     return {
         'emotion': emotion,
