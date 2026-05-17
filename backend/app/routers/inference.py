@@ -324,12 +324,15 @@ def get_safe_extension(filename: str | None, default_ext: str) -> str:
     suffix = Path(filename).suffix.lower()
 
     allowed_extensions = {
+        ".mp4",
+        ".mov",
+        ".webm",
+        ".mkv",
         ".wav",
         ".mp3",
         ".m4a",
         ".aac",
         ".ogg",
-        ".webm",
         ".jpg",
         ".jpeg",
         ".png",
