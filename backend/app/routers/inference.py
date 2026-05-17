@@ -365,3 +365,4 @@ def write_metadata(request_id: str, metadata: dict) -> None:
         json.dumps(metadata, ensure_ascii=False, indent=2),
         encoding="utf-8",
     )
+
