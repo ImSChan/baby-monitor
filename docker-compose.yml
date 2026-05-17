@@ -57,7 +57,6 @@ services:
         condition: service_started
     volumes:
       - ./backend/app:/app/app
-      - ./backend/models:/app/models
       - ./backend/uploads:/app/uploads
       - ./backend/weights:/app/weights
     command: python -m app.workers.analysis_worker

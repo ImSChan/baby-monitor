@@ -11,9 +11,12 @@ from sqlmodel import Session, select
 
 from app.database import get_session
 from app.deps import get_current_user_id
-from app.models import Camera, EmotionEvent
-from app.services.audio_preprocess_service import convert_audio_to_wav
-from app.services.inference_service import run_multimodal_inference
+from app.models import Camera
+from app.services.inference_queue_service import (
+    enqueue_inference_job,
+    get_job_result,
+    get_job_status,
+)
 from app.utils.time import kst_now
 
 router = APIRouter()
@@ -74,16 +77,11 @@ async def analyze_multimodal_upload(
     frames_dir.mkdir(parents=True, exist_ok=True)
 
     audio_path = None
-    converted_audio_path = None
-    model_audio_path = None
     saved_frame_paths: list[str] = []
     selected_frame_path = None
     selected_frame_index = None
 
     try:
-        # =========================================================
-        # 1. 오디오 파일 저장
-        # =========================================================
         if audio_file is not None:
             validate_audio_file(audio_file)
 
@@ -93,17 +91,6 @@ async def analyze_multimodal_upload(
             await save_upload_file(audio_file, audio_path_obj)
             audio_path = str(audio_path_obj)
 
-            # 모델 입력용 16kHz mono wav 변환
-            converted_audio_path = convert_audio_to_wav(
-                input_audio_path=audio_path,
-                output_audio_path=str(request_dir / "audio_16k.wav"),
-            )
-
-            model_audio_path = converted_audio_path or audio_path
-
-        # =========================================================
-        # 2. 프레임 이미지 저장
-        # =========================================================
         for index, frame_file in enumerate(frame_files):
             validate_image_file(frame_file)
 
@@ -113,27 +100,13 @@ async def analyze_multimodal_upload(
             await save_upload_file(frame_file, frame_path)
             saved_frame_paths.append(str(frame_path))
 
-        # =========================================================
-        # 3. 마지막 프레임 선택
-        #    현재 프로토타입에서는 마지막 프레임 1장만 이미지 분류기에 전달
-        # =========================================================
         if saved_frame_paths:
             selected_frame_index = len(saved_frame_paths) - 1
             selected_frame_path = saved_frame_paths[-1]
 
-        model_frame_paths = [selected_frame_path] if selected_frame_path else []
-
-        if model_audio_path is None and len(model_frame_paths) == 0:
-            raise HTTPException(
-                status_code=400,
-                detail="모델에 전달할 오디오 또는 프레임 데이터가 없습니다.",
-            )
-
-        # =========================================================
-        # 4. metadata 저장
-        # =========================================================
         metadata = {
             "request_id": request_id,
+            "status": "queued",
             "user_id": current_user_id,
             "camera_id": camera_id,
             "captured_at": captured_at,
@@ -142,58 +115,41 @@ async def analyze_multimodal_upload(
             "audio_filename": audio_file.filename if audio_file else None,
             "audio_content_type": audio_file.content_type if audio_file else None,
             "audio_path": audio_path,
-            "converted_audio_path": converted_audio_path,
-            "model_audio_path": model_audio_path,
+            "converted_audio_path": None,
+            "model_audio_path": None,
             "frame_count": len(saved_frame_paths),
             "frame_paths": saved_frame_paths,
             "selected_frame_index": selected_frame_index,
             "selected_frame_path": selected_frame_path,
-            "model_frame_paths": model_frame_paths,
+            "model_frame_paths": [selected_frame_path] if selected_frame_path else [],
             "received_at": kst_now().isoformat(),
             "preprocess_method": "frontend_audio_and_frames",
             "model_input_policy": "last_frame_only",
         }
 
-        metadata_path = request_dir / "metadata.json"
-        metadata_path.write_text(
-            json.dumps(metadata, ensure_ascii=False, indent=2),
-            encoding="utf-8",
-        )
+        write_metadata(request_id, metadata)
 
-        # =========================================================
-        # 5. 추론 수행
-        # =========================================================
-        inference_result = run_multimodal_inference(
-            audio_path=model_audio_path,
-            frame_paths=model_frame_paths,
-            metadata=metadata,
-        )
+        job = {
+            "request_id": request_id,
+            "user_id": current_user_id,
+            "camera_id": camera_id,
+            "captured_at": captured_at,
+            "request_dir": str(request_dir),
+            "audio_path": audio_path,
+            "frame_paths": saved_frame_paths,
+            "selected_frame_path": selected_frame_path,
+            "selected_frame_index": selected_frame_index,
+            "metadata_path": str(request_dir / "metadata.json"),
+        }
 
-        # =========================================================
-        # 6. DB 저장
-        # =========================================================
-        event = EmotionEvent(
-            user_id=current_user_id,
-            camera_id=camera_id,
-            emotion=inference_result["emotion"],
-            confidence=float(inference_result["confidence"]),
-            need=inference_result.get("need"),
-            message=inference_result.get("message"),
-            captured_at=parse_captured_at(captured_at),
-        )
+        enqueue_inference_job(job)
 
-        session.add(event)
-        session.commit()
-        session.refresh(event)
-
-        # =========================================================
-        # 7. 응답
-        # =========================================================
         return {
             "requestId": request_id,
+            "status": "queued",
+            "message": "분석 작업이 대기열에 등록되었습니다.",
             "saved": {
                 "audio": audio_path is not None,
-                "convertedAudio": converted_audio_path is not None,
                 "frameCount": len(saved_frame_paths),
                 "selectedFrameIndex": selected_frame_index,
             },
@@ -201,19 +157,8 @@ async def analyze_multimodal_upload(
                 "lastFrameUrl": f"/api/inference/requests/{request_id}/last-frame",
                 "audioUrl": f"/api/inference/requests/{request_id}/audio",
                 "metadataUrl": f"/api/inference/requests/{request_id}/metadata",
-            },
-            "metadata": metadata,
-            "result": {
-                "emotionEventId": event.id,
-                "emotion": event.emotion,
-                "confidence": event.confidence,
-                "need": event.need,
-                "message": event.message,
-                "capturedAt": event.captured_at,
-                "createdAt": event.created_at,
-                "audioResult": inference_result.get("audio_result"),
-                "visionResult": inference_result.get("vision_result"),
-                "fusionMethod": inference_result.get("fusion_method"),
+                "statusUrl": f"/api/inference/requests/{request_id}/status",
+                "resultUrl": f"/api/inference/requests/{request_id}/result",
             },
         }
 
@@ -225,8 +170,57 @@ async def analyze_multimodal_upload(
 
         raise HTTPException(
             status_code=500,
-            detail=f"멀티모달 분석 처리 중 오류가 발생했습니다: {str(exc)}",
+            detail=f"멀티모달 분석 요청 등록 중 오류가 발생했습니다: {str(exc)}",
         )
+
+
+@router.get("/requests/{request_id}/status")
+def get_inference_status(request_id: str):
+    status = get_job_status(request_id)
+
+    if status is None:
+        metadata = read_request_metadata(request_id)
+        return {
+            "requestId": request_id,
+            "status": metadata.get("status", "unknown"),
+            "message": metadata.get("status_message"),
+        }
+
+    return status
+
+
+@router.get("/requests/{request_id}/result")
+def get_inference_result(request_id: str):
+    result = get_job_result(request_id)
+
+    if result is not None:
+        return result
+
+    metadata = read_request_metadata(request_id)
+
+    if metadata.get("status") == "completed" and metadata.get("result"):
+        return {
+            "requestId": request_id,
+            "status": "completed",
+            "result": metadata.get("result"),
+            "saved": {
+                "audio": metadata.get("audio_path") is not None,
+                "convertedAudio": metadata.get("converted_audio_path") is not None,
+                "frameCount": metadata.get("frame_count", 0),
+                "selectedFrameIndex": metadata.get("selected_frame_index"),
+            },
+            "debug": {
+                "lastFrameUrl": f"/api/inference/requests/{request_id}/last-frame",
+                "audioUrl": f"/api/inference/requests/{request_id}/audio",
+                "metadataUrl": f"/api/inference/requests/{request_id}/metadata",
+            },
+        }
+
+    return {
+        "requestId": request_id,
+        "status": metadata.get("status", "queued"),
+        "message": metadata.get("status_message", "아직 분석이 완료되지 않았습니다."),
+    }
 
 
 @router.get("/requests/{request_id}/last-frame")
@@ -295,10 +289,7 @@ def validate_audio_file(upload_file: UploadFile) -> None:
         "application/octet-stream",
     }
 
-    content_type = upload_file.content_type or ""
-    base_content_type = content_type.split(";")[0].strip().lower()
-
-    if base_content_type not in allowed_content_types:
+    if upload_file.content_type not in allowed_content_types:
         raise HTTPException(
             status_code=400,
             detail=f"지원하지 않는 음성 파일 형식입니다: {upload_file.content_type}",
@@ -327,15 +318,12 @@ def get_safe_extension(filename: str | None, default_ext: str) -> str:
     suffix = Path(filename).suffix.lower()
 
     allowed_extensions = {
-        ".mp4",
-        ".mov",
-        ".webm",
-        ".mkv",
         ".wav",
         ".mp3",
         ".m4a",
         ".aac",
         ".ogg",
+        ".webm",
         ".jpg",
         ".jpeg",
         ".png",
@@ -368,3 +356,12 @@ def read_request_metadata(request_id: str) -> dict:
         return json.loads(metadata_path.read_text(encoding="utf-8"))
     except json.JSONDecodeError:
         raise HTTPException(status_code=500, detail="Request metadata is corrupted")
+
+
+def write_metadata(request_id: str, metadata: dict) -> None:
+    metadata_path = UPLOAD_ROOT / request_id / "metadata.json"
+    metadata_path.parent.mkdir(parents=True, exist_ok=True)
+    metadata_path.write_text(
+        json.dumps(metadata, ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
