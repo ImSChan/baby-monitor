@@ -275,7 +275,6 @@ async def save_upload_file(upload_file: UploadFile, destination: Path) -> None:
 
             buffer.write(chunk)
 
-
 def validate_audio_file(upload_file: UploadFile) -> None:
     allowed_content_types = {
         "audio/wav",
@@ -289,12 +288,16 @@ def validate_audio_file(upload_file: UploadFile) -> None:
         "application/octet-stream",
     }
 
-    if upload_file.content_type not in allowed_content_types:
+    raw_content_type = upload_file.content_type or "application/octet-stream"
+
+    # 예: audio/webm;codecs=opus -> audio/webm
+    normalized_content_type = raw_content_type.split(";")[0].strip().lower()
+
+    if normalized_content_type not in allowed_content_types:
         raise HTTPException(
             status_code=400,
-            detail=f"지원하지 않는 음성 파일 형식입니다: {upload_file.content_type}",
+            detail=f"지원하지 않는 음성 파일 형식입니다: {raw_content_type}",
         )
-
 
 def validate_image_file(upload_file: UploadFile) -> None:
     allowed_content_types = {
@@ -304,12 +307,14 @@ def validate_image_file(upload_file: UploadFile) -> None:
         "application/octet-stream",
     }
 
-    if upload_file.content_type not in allowed_content_types:
+    raw_content_type = upload_file.content_type or "application/octet-stream"
+    normalized_content_type = raw_content_type.split(";")[0].strip().lower()
+
+    if normalized_content_type not in allowed_content_types:
         raise HTTPException(
             status_code=400,
-            detail=f"지원하지 않는 이미지 파일 형식입니다: {upload_file.content_type}",
+            detail=f"지원하지 않는 이미지 파일 형식입니다: {raw_content_type}",
         )
-
 
 def get_safe_extension(filename: str | None, default_ext: str) -> str:
     if not filename:
