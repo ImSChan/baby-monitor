@@ -295,7 +295,10 @@ def validate_audio_file(upload_file: UploadFile) -> None:
         "application/octet-stream",
     }
 
-    if upload_file.content_type not in allowed_content_types:
+    content_type = upload_file.content_type or ""
+    base_content_type = content_type.split(";")[0].strip().lower()
+
+    if base_content_type not in allowed_content_types:
         raise HTTPException(
             status_code=400,
             detail=f"지원하지 않는 음성 파일 형식입니다: {upload_file.content_type}",
