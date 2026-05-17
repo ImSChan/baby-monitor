@@ -155,7 +155,7 @@ def predict_audio(audio_path: str) -> dict:
 
 def predict_images(frame_paths: list[str]) -> dict | None:
     transform = transforms.Compose([
-        transforms.Resize((384, 384)),
+        transforms.Resize((224, 224)),
         transforms.ToTensor(),
         transforms.Normalize(
             mean=[0.485, 0.456, 0.406],
