@@ -44,18 +44,3 @@ export function getInferenceStatus(requestId) {
 export function getInferenceResult(requestId) {
   return apiGet('/api/inference/requests/' + requestId + '/result')
 }
-
-export function buildInferenceDebugUrls(apiBaseUrl, requestId) {
-  return {
-    lastFrameUrl:
-      apiBaseUrl + '/api/inference/requests/' + requestId + '/last-frame',
-    audioUrl:
-      apiBaseUrl + '/api/inference/requests/' + requestId + '/audio',
-    metadataUrl:
-      apiBaseUrl + '/api/inference/requests/' + requestId + '/metadata',
-    statusUrl:
-      apiBaseUrl + '/api/inference/requests/' + requestId + '/status',
-    resultUrl:
-      apiBaseUrl + '/api/inference/requests/' + requestId + '/result',
-  }
-}

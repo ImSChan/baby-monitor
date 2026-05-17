@@ -13,10 +13,8 @@ import {
 import Card from '../components/common/Card'
 import Header from '../components/common/Header'
 import StatusBadge from '../components/common/StatusBadge'
-import { getApiBaseUrl } from '../api/client'
 import { getDashboard } from '../api/dashboardApi'
 import {
-  buildInferenceDebugUrls,
   getInferenceResult,
   getInferenceStatus,
   requestMultimodalInference,
@@ -35,84 +33,80 @@ function HomePage() {
   const { data, loading, error } = useApi(getDashboard, [reloadKey])
 
   async function handleVideoSelected(event) {
-  const file = event.target.files?.[0]
+    const file = event.target.files?.[0]
 
-  if (!file) {
-    return
-  }
-
-  try {
-    setUploading(true)
-    setUploadMessage('영상 전처리를 시작합니다...')
-    setUploadError('')
-    setAnalysisResult(null)
-
-    const preprocessed = await preprocessVideoForInference(file, {
-      framesPerSecond: 1,
-      maxFrames: 20,
-      maxWidth: 640,
-      onProgress: setUploadMessage,
-    })
-
-    if (preprocessed.frameFiles.length === 0 && !preprocessed.audioFile) {
-      throw new Error('분석할 프레임 또는 오디오를 추출하지 못했습니다.')
+    if (!file) {
+      return
     }
 
-    const audioStatus = preprocessed.audioFile
-      ? '오디오 추출 완료'
-      : '오디오 추출 실패. 프레임만 전송합니다.'
+    try {
+      setUploading(true)
+      setUploadMessage('영상 전처리를 시작합니다...')
+      setUploadError('')
+      setAnalysisResult(null)
 
-    setUploadMessage(
-      '프레임 ' +
-        preprocessed.frameFiles.length +
-        '개 추출 완료. ' +
-        audioStatus +
-        ' 서버에 분석 작업을 등록하는 중입니다...'
-    )
+      const preprocessed = await preprocessVideoForInference(file, {
+        framesPerSecond: 1,
+        maxFrames: 20,
+        maxWidth: 640,
+        onProgress: setUploadMessage,
+      })
 
-    const queued = await requestMultimodalInference({
-      audioFile: preprocessed.audioFile,
-      frameFiles: preprocessed.frameFiles,
-      capturedAt: new Date().toISOString(),
-      frameRate: preprocessed.frameRate,
-      durationSeconds: preprocessed.durationSeconds,
-    })
+      if (preprocessed.frameFiles.length === 0 && !preprocessed.audioFile) {
+        throw new Error('분석할 프레임 또는 오디오를 추출하지 못했습니다.')
+      }
 
-    const requestId = queued.requestId
+      const audioStatus = preprocessed.audioFile
+        ? '오디오 추출 완료'
+        : '오디오 추출 실패. 프레임만 전송합니다.'
 
-    if (!requestId) {
-      throw new Error('서버 응답에 requestId가 없습니다.')
-    }
+      setUploadMessage(
+        '프레임 ' +
+          preprocessed.frameFiles.length +
+          '개 추출 완료. ' +
+          audioStatus +
+          ' 서버에 분석 작업을 등록하는 중입니다...'
+      )
 
-    setUploadMessage('분석 작업이 등록되었습니다. 작업 처리 상태를 확인하는 중입니다...')
+      const queued = await requestMultimodalInference({
+        audioFile: preprocessed.audioFile,
+        frameFiles: preprocessed.frameFiles,
+        capturedAt: new Date().toISOString(),
+        frameRate: preprocessed.frameRate,
+        durationSeconds: preprocessed.durationSeconds,
+      })
 
-    const completedResult = await waitForInferenceCompleted(requestId, {
-      onProgress: setUploadMessage,
-    })
+      const requestId = queued.requestId
 
-    const apiBaseUrl = getApiBaseUrl()
-    const debugUrls = buildInferenceDebugUrls(apiBaseUrl, requestId)
+      if (!requestId) {
+        throw new Error('서버 응답에 requestId가 없습니다.')
+      }
 
-    setAnalysisResult({
-      ...completedResult.result,
-      requestId,
-      saved: completedResult.saved,
-      debug: completedResult.debug || debugUrls,
-    })
+      setUploadMessage('분석 작업이 등록되었습니다. 작업 처리 상태를 확인하는 중입니다...')
 
-    setUploadMessage('영상 분석이 완료되었습니다.')
-    setReloadKey((prev) => prev + 1)
-  } catch (err) {
-    setUploadError(err.message || '영상 분석 요청 중 오류가 발생했습니다.')
-    setUploadMessage('')
-  } finally {
-    setUploading(false)
+      const completedResult = await waitForInferenceCompleted(requestId, {
+        onProgress: setUploadMessage,
+      })
 
-    if (fileInputRef.current) {
-      fileInputRef.current.value = ''
+      setAnalysisResult({
+        ...completedResult.result,
+        requestId,
+        saved: completedResult.saved,
+      })
+
+      setUploadMessage('영상 분석이 완료되었습니다.')
+      setReloadKey((prev) => prev + 1)
+    } catch (err) {
+      setUploadError(err.message || '영상 분석 요청 중 오류가 발생했습니다.')
+      setUploadMessage('')
+    } finally {
+      setUploading(false)
+
+      if (fileInputRef.current) {
+        fileInputRef.current.value = ''
+      }
     }
   }
-}
 
   const currentEmotion = data?.currentEmotion
   const environment = data?.environment
@@ -136,14 +130,13 @@ function HomePage() {
               저장된 영상으로 감정 상태 분석
             </h2>
             <p className='mt-2 text-sm leading-6 text-slate-400'>
-              영상을 업로드하면 AI 분석 서버로 전송합니다.
+              영상을 업로드하면 브라우저에서 프레임과 오디오를 추출한 뒤, AI 분석 서버로 전송합니다.
             </p>
           </div>
         </div>
 
         <div className='mt-4 rounded-2xl bg-slate-950/40 p-4 text-xs leading-5 text-slate-400'>
-          현재는 프로토타입 단계입니다. 영상 프레임 추출은 브라우저에서 수행되며,
-          오디오 추출은 브라우저가 지원하는 형식에서만 best-effort로 동작합니다.
+          현재는 프로토타입 단계입니다. 안드로이드 환경 기준으로 영상에서 오디오와 프레임을 추출해 분석을 요청합니다.
         </div>
 
         <input
@@ -175,57 +168,33 @@ function HomePage() {
             {uploadError}
           </p>
         )}
+
         {analysisResult && (
           <div className='mt-3 rounded-2xl bg-emerald-400/10 p-4'>
             <p className='text-sm font-semibold text-emerald-200'>분석 결과</p>
+
             <p className='mt-2 text-lg font-bold text-white'>
               {analysisResult.emotion}
             </p>
+
             <p className='mt-1 text-sm leading-6 text-slate-300'>
               {analysisResult.message}
             </p>
+
             <p className='mt-2 text-xs text-slate-400'>
               신뢰도 {Math.round((analysisResult.confidence || 0) * 100)}%
             </p>
 
             {analysisResult.audioResult && (
               <p className='mt-2 text-xs text-slate-400'>
-                음성 분류: {analysisResult.audioResult.label} / 
-                {Math.round((analysisResult.audioResult.confidence || 0) * 100)}%
+                음성 분류: {analysisResult.audioResult.label} / {Math.round((analysisResult.audioResult.confidence || 0) * 100)}%
               </p>
             )}
 
             {analysisResult.visionResult && (
               <p className='mt-1 text-xs text-slate-400'>
-                이미지 분류: {analysisResult.visionResult.label} / 
-                {Math.round((analysisResult.visionResult.confidence || 0) * 100)}%
+                이미지 분류: {analysisResult.visionResult.label} / {Math.round((analysisResult.visionResult.confidence || 0) * 100)}%
               </p>
-            )}
-
-            {analysisResult.debug?.lastFrameUrl && (
-              <div className='mt-4'>
-                <p className='mb-2 text-xs font-semibold text-slate-300'>
-                  모델 입력 마지막 프레임
-                </p>
-                <img
-                  src={analysisResult.debug.lastFrameUrl}
-                  alt='모델 입력 마지막 프레임'
-                  className='w-full rounded-2xl border border-slate-700 object-cover'
-                />
-              </div>
-            )}
-
-            {analysisResult.debug?.audioUrl && (
-              <div className='mt-4'>
-                <p className='mb-2 text-xs font-semibold text-slate-300'>
-                  모델 입력 오디오
-                </p>
-                <audio
-                  controls
-                  src={analysisResult.debug.audioUrl}
-                  className='w-full'
-                />
-              </div>
             )}
           </div>
         )}
@@ -354,6 +323,7 @@ function HomePage() {
     </main>
   )
 }
+
 async function waitForInferenceCompleted(requestId, options = {}) {
   const onProgress = options.onProgress || (() => {})
   const maxAttempts = options.maxAttempts || 60
