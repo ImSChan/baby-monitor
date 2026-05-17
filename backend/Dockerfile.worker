@@ -1,0 +1,21 @@
+﻿FROM pytorch/pytorch:2.2.1-cuda12.1-cudnn8-runtime
+
+WORKDIR /app
+
+RUN apt-get update && apt-get install -y \
+    ffmpeg \
+    libglib2.0-0 \
+    libgl1 \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY requirements.txt .
+COPY requirements.worker.txt .
+
+RUN pip install --no-cache-dir -r requirements.worker.txt
+
+COPY app ./app
+
+RUN mkdir -p /app/weights
+RUN mkdir -p /app/uploads
+
+CMD [""python"", ""-m"", ""app.workers.analysis_worker""]

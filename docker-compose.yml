@@ -40,11 +40,13 @@ services:
       - ./backend/models:/app/models
       - ./backend/uploads:/app/uploads
     command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+    gpus:
+      - all
 
   backend-worker:
     build:
       context: ./backend
-      dockerfile: Dockerfile
+      dockerfile: Dockerfile.worker
     container_name: baby-monitor-worker
     restart: unless-stopped
     env_file:
@@ -58,8 +60,8 @@ services:
       - ./backend/app:/app/app
       - ./backend/models:/app/models
       - ./backend/uploads:/app/uploads
+      - ./backend/weights:/app/weights
     command: python -m app.workers.analysis_worker
-
   db:
     image: postgres:16
     container_name: baby-monitor-db
@@ -87,3 +89,4 @@ services:
 
 volumes:
   baby_monitor_postgres_data:
+  

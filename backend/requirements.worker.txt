@@ -1,0 +1,10 @@
+﻿-r requirements.txt
+
+gdown
+timm
+transformers>=4.40,<5
+torchvision
+Pillow
+librosa
+soundfile
+numpy
