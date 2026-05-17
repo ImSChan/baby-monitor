@@ -217,6 +217,126 @@ function canvasToBlob(canvas, type, quality) {
 }
 
 async function extractAudioBestEffort(videoFile) {
+  // 1차 시도: 영상 재생 스트림에서 오디오 트랙 캡처
+  const recordedAudio = await extractAudioByMediaRecorder(videoFile)
+
+  if (recordedAudio) {
+    return recordedAudio
+  }
+
+  // 2차 시도: 기존 AudioContext 방식
+  // 일부 webm/audio-friendly 파일에서는 이 방식이 동작할 수 있음
+  const decodedAudio = await extractAudioByDecodeAudioData(videoFile)
+
+  if (decodedAudio) {
+    return decodedAudio
+  }
+
+  return null
+}
+
+async function extractAudioByMediaRecorder(videoFile) {
+  const videoUrl = URL.createObjectURL(videoFile)
+  const video = document.createElement('video')
+
+  video.src = videoUrl
+  video.muted = false
+  video.playsInline = true
+  video.preload = 'auto'
+  video.controls = false
+
+  video.style.position = 'fixed'
+  video.style.left = '-9999px'
+  video.style.top = '-9999px'
+  video.style.width = '1px'
+  video.style.height = '1px'
+  video.style.opacity = '0'
+
+  document.body.appendChild(video)
+
+  try {
+    await waitForEvent(video, 'loadedmetadata', 10000)
+
+    const captureStream =
+      video.captureStream ||
+      video.mozCaptureStream ||
+      video.webkitCaptureStream
+
+    if (!captureStream || typeof MediaRecorder === 'undefined') {
+      return null
+    }
+
+    const stream = captureStream.call(video)
+    const audioTracks = stream.getAudioTracks()
+
+    if (!audioTracks || audioTracks.length === 0) {
+      return null
+    }
+
+    const audioOnlyStream = new MediaStream(audioTracks)
+
+    const mimeType = getSupportedAudioMimeType()
+
+    if (!mimeType) {
+      return null
+    }
+
+    const chunks = []
+    const recorder = new MediaRecorder(audioOnlyStream, {
+      mimeType,
+    })
+
+    recorder.ondataavailable = (event) => {
+      if (event.data && event.data.size > 0) {
+        chunks.push(event.data)
+      }
+    }
+
+    const stopped = new Promise((resolve) => {
+      recorder.onstop = resolve
+    })
+
+    recorder.start()
+
+    video.currentTime = 0
+
+    try {
+      await video.play()
+    } catch {
+      recorder.stop()
+      return null
+    }
+
+    await waitForVideoEndedOrTimeout(video, 30000)
+
+    if (recorder.state !== 'inactive') {
+      recorder.stop()
+    }
+
+    await stopped
+
+    if (chunks.length === 0) {
+      return null
+    }
+
+    const extension = getAudioExtensionByMimeType(mimeType)
+    const blob = new Blob(chunks, { type: mimeType })
+
+    return new File([blob], 'audio' + extension, {
+      type: mimeType,
+    })
+  } catch {
+    return null
+  } finally {
+    URL.revokeObjectURL(videoUrl)
+
+    if (video.parentNode) {
+      video.parentNode.removeChild(video)
+    }
+  }
+}
+
+async function extractAudioByDecodeAudioData(videoFile) {
   try {
     const AudioContextClass = window.AudioContext || window.webkitAudioContext
 
@@ -240,6 +360,276 @@ async function extractAudioBestEffort(videoFile) {
   } catch {
     return null
   }
+}
+
+function getSupportedAudioMimeType() {
+  const candidates = [
+    'audio/webm;codecs=opus',
+    'audio/webm',
+    'audio/ogg;codecs=opus',
+    'audio/ogg',
+    'audio/mp4',
+  ]
+
+  for (const mimeType of candidates) {
+    if (MediaRecorder.isTypeSupported(mimeType)) {
+      return mimeType
+    }
+  }
+
+  return ''
+}
+
+function getAudioExtensionByMimeType(mimeType) {
+  if (mimeType.includes('webm')) {
+    return '.webm'
+  }
+
+  if (mimeType.includes('ogg')) {
+    return '.ogg'
+  }
+
+  if (mimeType.includes('mp4')) {
+    return '.m4a'
+  }
+
+  return '.webm'
+}
+
+function waitForVideoEndedOrTimeout(video, timeoutMs) {
+  return new Promise((resolve) => {
+    let finished = false
+
+    const timer = setTimeout(() => {
+      if (finished) return
+      finished = true
+      cleanup()
+      resolve()
+    }, timeoutMs)
+
+    function cleanup() {
+      clearTimeout(timer)
+      video.removeEventListener('ended', onEnded)
+      video.removeEventListener('error', onEnded)
+    }
+
+    function onEnded() {
+      if (finished) return
+      finished = true
+      cleanup()
+      resolve()
+    }
+
+    video.addEventListener('ended', onEnded, { once: true })
+    video.addEventListener('error', onEnded, { once: true })
+  })
+}async function extractAudioBestEffort(videoFile) {
+  // 1차 시도: 영상 재생 스트림에서 오디오 트랙 캡처
+  const recordedAudio = await extractAudioByMediaRecorder(videoFile)
+
+  if (recordedAudio) {
+    return recordedAudio
+  }
+
+  // 2차 시도: 기존 AudioContext 방식
+  // 일부 webm/audio-friendly 파일에서는 이 방식이 동작할 수 있음
+  const decodedAudio = await extractAudioByDecodeAudioData(videoFile)
+
+  if (decodedAudio) {
+    return decodedAudio
+  }
+
+  return null
+}
+
+async function extractAudioByMediaRecorder(videoFile) {
+  const videoUrl = URL.createObjectURL(videoFile)
+  const video = document.createElement('video')
+
+  video.src = videoUrl
+  video.muted = false
+  video.playsInline = true
+  video.preload = 'auto'
+  video.controls = false
+
+  video.style.position = 'fixed'
+  video.style.left = '-9999px'
+  video.style.top = '-9999px'
+  video.style.width = '1px'
+  video.style.height = '1px'
+  video.style.opacity = '0'
+
+  document.body.appendChild(video)
+
+  try {
+    await waitForEvent(video, 'loadedmetadata', 10000)
+
+    const captureStream =
+      video.captureStream ||
+      video.mozCaptureStream ||
+      video.webkitCaptureStream
+
+    if (!captureStream || typeof MediaRecorder === 'undefined') {
+      return null
+    }
+
+    const stream = captureStream.call(video)
+    const audioTracks = stream.getAudioTracks()
+
+    if (!audioTracks || audioTracks.length === 0) {
+      return null
+    }
+
+    const audioOnlyStream = new MediaStream(audioTracks)
+
+    const mimeType = getSupportedAudioMimeType()
+
+    if (!mimeType) {
+      return null
+    }
+
+    const chunks = []
+    const recorder = new MediaRecorder(audioOnlyStream, {
+      mimeType,
+    })
+
+    recorder.ondataavailable = (event) => {
+      if (event.data && event.data.size > 0) {
+        chunks.push(event.data)
+      }
+    }
+
+    const stopped = new Promise((resolve) => {
+      recorder.onstop = resolve
+    })
+
+    recorder.start()
+
+    video.currentTime = 0
+
+    try {
+      await video.play()
+    } catch {
+      recorder.stop()
+      return null
+    }
+
+    await waitForVideoEndedOrTimeout(video, 30000)
+
+    if (recorder.state !== 'inactive') {
+      recorder.stop()
+    }
+
+    await stopped
+
+    if (chunks.length === 0) {
+      return null
+    }
+
+    const extension = getAudioExtensionByMimeType(mimeType)
+    const blob = new Blob(chunks, { type: mimeType })
+
+    return new File([blob], 'audio' + extension, {
+      type: mimeType,
+    })
+  } catch {
+    return null
+  } finally {
+    URL.revokeObjectURL(videoUrl)
+
+    if (video.parentNode) {
+      video.parentNode.removeChild(video)
+    }
+  }
+}
+
+async function extractAudioByDecodeAudioData(videoFile) {
+  try {
+    const AudioContextClass = window.AudioContext || window.webkitAudioContext
+
+    if (!AudioContextClass) {
+      return null
+    }
+
+    const audioContext = new AudioContextClass()
+    const arrayBuffer = await videoFile.arrayBuffer()
+    const audioBuffer = await audioContext.decodeAudioData(arrayBuffer.slice(0))
+    const wavBuffer = audioBufferToWav(audioBuffer)
+    const wavBlob = new Blob([wavBuffer], { type: 'audio/wav' })
+
+    if (audioContext.close) {
+      await audioContext.close()
+    }
+
+    return new File([wavBlob], 'audio.wav', {
+      type: 'audio/wav',
+    })
+  } catch {
+    return null
+  }
+}
+
+function getSupportedAudioMimeType() {
+  const candidates = [
+    'audio/webm;codecs=opus',
+    'audio/webm',
+    'audio/ogg;codecs=opus',
+    'audio/ogg',
+    'audio/mp4',
+  ]
+
+  for (const mimeType of candidates) {
+    if (MediaRecorder.isTypeSupported(mimeType)) {
+      return mimeType
+    }
+  }
+
+  return ''
+}
+
+function getAudioExtensionByMimeType(mimeType) {
+  if (mimeType.includes('webm')) {
+    return '.webm'
+  }
+
+  if (mimeType.includes('ogg')) {
+    return '.ogg'
+  }
+
+  if (mimeType.includes('mp4')) {
+    return '.m4a'
+  }
+
+  return '.webm'
+}
+
+function waitForVideoEndedOrTimeout(video, timeoutMs) {
+  return new Promise((resolve) => {
+    let finished = false
+
+    const timer = setTimeout(() => {
+      if (finished) return
+      finished = true
+      cleanup()
+      resolve()
+    }, timeoutMs)
+
+    function cleanup() {
+      clearTimeout(timer)
+      video.removeEventListener('ended', onEnded)
+      video.removeEventListener('error', onEnded)
+    }
+
+    function onEnded() {
+      if (finished) return
+      finished = true
+      cleanup()
+      resolve()
+    }
+
+    video.addEventListener('ended', onEnded, { once: true })
+    video.addEventListener('error', onEnded, { once: true })
+  })
 }
 
 function audioBufferToWav(audioBuffer) {

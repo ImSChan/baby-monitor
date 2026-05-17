@@ -166,9 +166,9 @@ def validate_audio_file(upload_file: UploadFile) -> None:
         "audio/mp4",
         "audio/aac",
         "audio/ogg",
+        "audio/webm",
         "application/octet-stream",
     }
-
     if upload_file.content_type not in allowed_content_types:
         raise HTTPException(
             status_code=400,
