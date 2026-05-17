@@ -101,7 +101,7 @@ async def analyze_multimodal_upload(
             saved_frame_paths.append(str(frame_path))
 
         if saved_frame_paths:
-            selected_frame_index = len(saved_frame_paths) - 1
+            selected_frame_index = len(saved_frame_paths) // 2
             selected_frame_path = saved_frame_paths[-1]
 
         metadata = {
