@@ -169,35 +169,23 @@ function HomePage() {
           </p>
         )}
 
-        {analysisResult && (
-          <div className='mt-3 rounded-2xl bg-emerald-400/10 p-4'>
-            <p className='text-sm font-semibold text-emerald-200'>분석 결과</p>
+      {analysisResult && (
+        <div className='mt-3 rounded-2xl bg-emerald-400/10 p-4'>
+          <p className='text-sm font-semibold text-emerald-200'>분석 결과</p>
 
-            <p className='mt-2 text-lg font-bold text-white'>
-              {analysisResult.emotion}
-            </p>
+          <p className='mt-2 text-lg font-bold text-white'>
+            {analysisResult.emotion}
+          </p>
 
-            <p className='mt-1 text-sm leading-6 text-slate-300'>
-              {analysisResult.message}
-            </p>
+          <p className='mt-1 text-sm leading-6 text-slate-300'>
+            {analysisResult.message}
+          </p>
 
-            <p className='mt-2 text-xs text-slate-400'>
-              신뢰도 {Math.round((analysisResult.confidence || 0) * 100)}%
-            </p>
-
-            {analysisResult.audioResult && (
-              <p className='mt-2 text-xs text-slate-400'>
-                음성 분류: {analysisResult.audioResult.label} / {Math.round((analysisResult.audioResult.confidence || 0) * 100)}%
-              </p>
-            )}
-
-            {analysisResult.visionResult && (
-              <p className='mt-1 text-xs text-slate-400'>
-                이미지 분류: {analysisResult.visionResult.label} / {Math.round((analysisResult.visionResult.confidence || 0) * 100)}%
-              </p>
-            )}
-          </div>
-        )}
+          <p className='mt-2 text-xs text-slate-400'>
+            최종 확률 {Math.round((analysisResult.confidence || 0) * 100)}%
+          </p>
+        </div>
+      )}
       </Card>
 
       {loading && (
