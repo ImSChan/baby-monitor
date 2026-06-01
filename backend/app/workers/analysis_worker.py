@@ -9,7 +9,6 @@ from app.database import engine
 from app.models import EmotionEvent
 from app.services.audio_preprocess_service import convert_audio_to_wav
 from app.services.inference_queue_service import (
-    get_job_status,
     pop_inference_job,
     set_job_result,
     set_job_status,
@@ -112,8 +111,7 @@ def process_job(job: dict):
                     "message": event.message,
                     "capturedAt": event.captured_at.isoformat() if event.captured_at else None,
                     "createdAt": event.created_at.isoformat() if event.created_at else None,
-                    "audioResult": inference_result.get("audio_result"),
-                    "visionResult": inference_result.get("vision_result"),
+                    "topPredictions": inference_result.get("topPredictions", []),
                     "fusionMethod": inference_result.get("fusion_method"),
                 },
             }

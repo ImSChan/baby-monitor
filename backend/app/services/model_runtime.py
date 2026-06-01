@@ -10,32 +10,32 @@ from torchvision import models, transforms
 from transformers import Wav2Vec2FeatureExtractor, WavLMForSequenceClassification
 
 
-WEIGHTS_DIR = Path('/app/weights')
+WEIGHTS_DIR = Path("/app/weights")
 WEIGHTS_DIR.mkdir(parents=True, exist_ok=True)
 
-FACE_MODEL_PATH = WEIGHTS_DIR / 'efficientnet_best.pth'
-WAVLM_MODEL_DIR = WEIGHTS_DIR / 'wavlm_model'
+FACE_MODEL_PATH = WEIGHTS_DIR / "efficientnet_best.pth"
+WAVLM_MODEL_DIR = WEIGHTS_DIR / "wavlm_model"
 
-FACE_MODEL_GDRIVE_ID = '1rt1e8aVNJCALvF5CJZNqshyfIT2wqXf9'
-WAVLM_MODEL_GDRIVE_ID = '1uZ1TydQQClSBJRAXN-GHdyoaxPWyjZl_'
+FACE_MODEL_GDRIVE_ID = "1rt1e8aVNJCALvF5CJZNqshyfIT2wqXf9"
+WAVLM_MODEL_GDRIVE_ID = "1uZ1TydQQClSBJRAXN-GHdyoaxPWyjZl_"
 
 AUDIO_LABELS = [
-    'belly pain',
-    'burping',
-    'cold_hot',
-    'discomfort',
-    'hungry',
-    'laugh',
-    'tired',
+    "belly pain",
+    "burping",
+    "cold_hot",
+    "discomfort",
+    "hungry",
+    "laugh",
+    "tired",
 ]
 
 IMAGE_LABELS = [
-    'happy',
-    'normal',
-    'unhappy',
+    "happy",
+    "normal",
+    "unhappy",
 ]
 
-device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 _feature_extractor = None
 _wavlm_model = None
@@ -59,7 +59,7 @@ def ensure_weights():
 
 
 def get_high_perf_model(num_classes: int):
-    model = models.efficientnet_v2_s(weights='IMAGENET1K_V1')
+    model = models.efficientnet_v2_s(weights="IMAGENET1K_V1")
 
     for param in model.parameters():
         param.requires_grad = False
@@ -118,13 +118,14 @@ def predict_from_paths(audio_path: str | None, frame_paths: list[str]) -> dict:
     final_result = fuse_results(audio_result, image_result)
 
     return {
-        'audio_result': audio_result,
-        'vision_result': image_result,
-        'emotion': final_result['emotion'],
-        'confidence': final_result['confidence'],
-        'need': final_result['need'],
-        'message': final_result['message'],
-        'fusion_method': 'worker_late_fusion',
+        "audio_result": audio_result,
+        "vision_result": image_result,
+        "emotion": final_result["emotion"],
+        "confidence": final_result["confidence"],
+        "need": final_result["need"],
+        "message": final_result["message"],
+        "topPredictions": final_result.get("topPredictions", []),
+        "fusion_method": "worker_late_fusion_top2",
     }
 
 
@@ -134,7 +135,7 @@ def predict_audio(audio_path: str) -> dict:
     inputs = _feature_extractor(
         waveform,
         sampling_rate=16000,
-        return_tensors='pt',
+        return_tensors="pt",
         padding=True,
     )
 
@@ -148,8 +149,12 @@ def predict_audio(audio_path: str) -> dict:
         confidence = probabilities[0][pred_id].item()
 
     return {
-        'label': AUDIO_LABELS[pred_id],
-        'confidence': float(confidence),
+        "label": AUDIO_LABELS[pred_id],
+        "confidence": float(confidence),
+        "probabilities": {
+            AUDIO_LABELS[i]: float(probabilities[0][i].item())
+            for i in range(len(AUDIO_LABELS))
+        },
     }
 
 
@@ -166,7 +171,7 @@ def predict_images(frame_paths: list[str]) -> dict | None:
     predictions = []
 
     for frame_path in frame_paths:
-        image = Image.open(frame_path).convert('RGB')
+        image = Image.open(frame_path).convert("RGB")
         tensor = transform(image).unsqueeze(0).to(device)
 
         with torch.no_grad():
@@ -176,9 +181,13 @@ def predict_images(frame_paths: list[str]) -> dict | None:
             confidence = probabilities[0][pred_id].item()
 
         predictions.append({
-            'label': IMAGE_LABELS[pred_id],
-            'confidence': float(confidence),
-            'frame_path': frame_path,
+            "label": IMAGE_LABELS[pred_id],
+            "confidence": float(confidence),
+            "frame_path": frame_path,
+            "probabilities": {
+                IMAGE_LABELS[i]: float(probabilities[0][i].item())
+                for i in range(len(IMAGE_LABELS))
+            },
         })
 
     if not predictions:
@@ -187,79 +196,123 @@ def predict_images(frame_paths: list[str]) -> dict | None:
     label_scores = {}
 
     for item in predictions:
-        label_scores[item['label']] = label_scores.get(item['label'], 0.0) + item['confidence']
+        label_scores[item["label"]] = label_scores.get(item["label"], 0.0) + item["confidence"]
 
     best_label = max(label_scores, key=label_scores.get)
-
     same_label_items = [
         item for item in predictions
-        if item['label'] == best_label
+        if item["label"] == best_label
     ]
 
     avg_confidence = label_scores[best_label] / max(1, len(same_label_items))
 
     return {
-        'label': best_label,
-        'confidence': float(avg_confidence),
-        'frame_count': len(predictions),
-        'frame_predictions': predictions,
+        "label": best_label,
+        "confidence": float(avg_confidence),
+        "frame_count": len(predictions),
+        "frame_predictions": predictions,
     }
 
 
 def fuse_results(audio_result: dict | None, image_result: dict | None) -> dict:
-    audio_label = audio_result['label'] if audio_result else None
-    image_label = image_result['label'] if image_result else None
+    candidates = build_state_candidates(audio_result, image_result)
 
-    confidence_values = []
+    sorted_candidates = sorted(
+        candidates,
+        key=lambda item: item["confidence"],
+        reverse=True,
+    )
 
-    if audio_result:
-        confidence_values.append(audio_result['confidence'])
+    top_predictions = sorted_candidates[:2]
 
-    if image_result:
-        confidence_values.append(image_result['confidence'])
+    if not top_predictions:
+        return {
+            "emotion": "분석 불가",
+            "confidence": 0.0,
+            "need": "unknown",
+            "message": "분석 가능한 데이터가 부족합니다.",
+            "topPredictions": [],
+        }
 
-    confidence = float(np.mean(confidence_values)) if confidence_values else 0.0
-
-    emotion = '분석 불가'
-    need = 'unknown'
-    message = '분석 가능한 데이터가 부족합니다.'
-
-    if image_label == 'happy':
-        emotion = 'happy'
-        need = 'none'
-        message = '아이가 행복한 상태로 추정됩니다.'
-    elif audio_label == 'belly pain':
-        emotion = 'belly pain'
-        need = 'care'
-        message = '배가 아파 우는 것으로 추정됩니다.'
-    elif audio_label == 'burping':
-        emotion = 'burping'
-        need = 'care'
-        message = '트림이 필요한 상태로 추정됩니다.'
-    elif audio_label == 'cold_hot':
-        emotion = 'cold_hot'
-        need = 'environment'
-        message = '덥거나 추워서 불편한 상태로 추정됩니다.'
-    elif audio_label == 'discomfort':
-        emotion = '불편함'
-        need = 'care'
-        message = '전반적인 불편함을 느끼는 상태로 추정됩니다.'
-    elif audio_label == 'hungry':
-        emotion = '배고픔'
-        need = 'care'
-        message = '배가 고파서 우는 것으로 추정됩니다.'
-    elif audio_label == 'laugh':
-        emotion = '웃음'
-        need = 'none'
-        message = '기분이 좋고 안정적인 상태로 추정됩니다.'
-    elif audio_label == 'tired':
-        emotion = '피곤함'
-        need = 'care'
-        message = '피곤해서 잠투정을 하는 것으로 추정됩니다.'    
+    best = top_predictions[0]
 
     return {
-        'emotion': emotion,
-        'confidence': confidence,
-        'need': need,
-        'message': message,
+        "emotion": best["emotion"],
+        "confidence": best["confidence"],
+        "need": best["need"],
+        "message": best["message"],
+        "topPredictions": top_predictions,
     }
+
+
+def build_state_candidates(audio_result: dict | None, image_result: dict | None) -> list[dict]:
+    candidates = []
+
+    audio_label = audio_result.get("label") if audio_result else None
+    audio_confidence = float(audio_result.get("confidence", 0.0)) if audio_result else 0.0
+
+    image_label = image_result.get("label") if image_result else None
+    image_confidence = float(image_result.get("confidence", 0.0)) if image_result else 0.0
+
+    hungry_score = 0.0
+    if audio_label == "hungry":
+        hungry_score += audio_confidence * 0.75
+    if image_label == "unhappy":
+        hungry_score += image_confidence * 0.25
+
+    candidates.append({
+        "emotion": "배고픔",
+        "confidence": clamp_confidence(hungry_score),
+        "need": "feeding",
+        "message": "배가 고파서 우는 것으로 추정됩니다.",
+    })
+
+    tired_score = 0.0
+    if audio_label == "tired":
+        tired_score += audio_confidence * 0.75
+    if image_label in {"normal", "unhappy"}:
+        tired_score += image_confidence * 0.20
+
+    candidates.append({
+        "emotion": "잠와요",
+        "confidence": clamp_confidence(tired_score),
+        "need": "sleep",
+        "message": "졸림으로 인해 보채는 상태일 가능성이 있습니다.",
+    })
+
+    discomfort_score = 0.0
+    if audio_label in {"discomfort", "belly pain", "cold_hot", "burping"}:
+        discomfort_score += audio_confidence * 0.75
+    if image_label == "unhappy":
+        discomfort_score += image_confidence * 0.25
+
+    candidates.append({
+        "emotion": "불편함",
+        "confidence": clamp_confidence(discomfort_score),
+        "need": "care",
+        "message": "불편함을 느끼고 있을 가능성이 있습니다.",
+    })
+
+    stable_score = 0.0
+    if audio_label == "laugh":
+        stable_score += audio_confidence * 0.50
+    if image_label == "happy":
+        stable_score += image_confidence * 0.85
+    elif image_label == "normal":
+        stable_score += image_confidence * 0.50
+
+    candidates.append({
+        "emotion": "안정 상태",
+        "confidence": clamp_confidence(stable_score),
+        "need": "stable",
+        "message": "현재는 비교적 안정적인 상태로 추정됩니다.",
+    })
+
+    return [
+        item for item in candidates
+        if item["confidence"] > 0
+    ]
+
+
+def clamp_confidence(value: float) -> float:
+    return max(0.0, min(1.0, float(value)))

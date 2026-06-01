@@ -1,6 +1,7 @@
 ﻿import { useRef, useState } from 'react'
 import {
   AlertCircle,
+  Baby,
   Camera,
   Droplets,
   Lightbulb,
@@ -169,23 +170,9 @@ function HomePage() {
           </p>
         )}
 
-      {analysisResult && (
-        <div className='mt-3 rounded-2xl bg-emerald-400/10 p-4'>
-          <p className='text-sm font-semibold text-emerald-200'>분석 결과</p>
-
-          <p className='mt-2 text-lg font-bold text-white'>
-            {analysisResult.emotion}
-          </p>
-
-          <p className='mt-1 text-sm leading-6 text-slate-300'>
-            {analysisResult.message}
-          </p>
-
-          <p className='mt-2 text-xs text-slate-400'>
-            최종 확률 {Math.round((analysisResult.confidence || 0) * 100)}%
-          </p>
-        </div>
-      )}
+        {analysisResult && (
+          <TopPredictionCard analysisResult={analysisResult} />
+        )}
       </Card>
 
       {loading && (
@@ -312,6 +299,70 @@ function HomePage() {
   )
 }
 
+function TopPredictionCard({ analysisResult }) {
+  const predictions = getTopPredictions(analysisResult)
+
+  return (
+    <div className='mt-4 rounded-[28px] bg-slate-950/50 p-5'>
+      <div className='mb-4 flex items-center gap-3'>
+        <div className='flex h-11 w-11 items-center justify-center rounded-full bg-blue-400/15 text-blue-200'>
+          <Baby size={24} />
+        </div>
+        <div>
+          <p className='text-xs font-semibold text-blue-200'>AI 분석 결과</p>
+          <h3 className='text-lg font-bold text-white'>현재 아기가 우는 이유</h3>
+        </div>
+      </div>
+
+      <div className='grid grid-cols-2 gap-3'>
+        {predictions.map((item, index) => (
+          <div
+            key={item.emotion + index}
+            className='rounded-3xl border border-slate-700/70 bg-slate-900/80 p-4'
+          >
+            <div className='mb-3 flex items-center justify-between'>
+              <div className='flex h-12 w-12 items-center justify-center rounded-2xl bg-white/10 text-2xl'>
+                {getEmotionIcon(item.need || item.emotion)}
+              </div>
+              <span className='rounded-full bg-blue-400/10 px-2 py-1 text-[11px] font-semibold text-blue-200'>
+                TOP {index + 1}
+              </span>
+            </div>
+
+            <p className='text-sm font-bold text-blue-200'>
+              {toUserFriendlyEmotion(item.emotion)}
+            </p>
+
+            <p className='mt-1 text-3xl font-light text-white'>
+              {Math.round((item.confidence || 0) * 100)}
+              <span className='ml-1 text-base text-slate-400'>%</span>
+            </p>
+          </div>
+        ))}
+      </div>
+
+      <p className='mt-4 text-xs leading-5 text-slate-400'>
+        AI가 가능성이 높은 상태 2가지를 제시합니다. 보호자는 실제 상황을 함께 보고 판단할 수 있습니다.
+      </p>
+    </div>
+  )
+}
+
+function getTopPredictions(analysisResult) {
+  if (analysisResult.topPredictions?.length > 0) {
+    return analysisResult.topPredictions.slice(0, 2)
+  }
+
+  return [
+    {
+      emotion: analysisResult.emotion,
+      confidence: analysisResult.confidence,
+      need: analysisResult.need,
+      message: analysisResult.message,
+    },
+  ]
+}
+
 async function waitForInferenceCompleted(requestId, options = {}) {
   const onProgress = options.onProgress || (() => {})
   const maxAttempts = options.maxAttempts || 60
@@ -339,6 +390,43 @@ async function waitForInferenceCompleted(requestId, options = {}) {
   }
 
   throw new Error('분석 작업 시간이 초과되었습니다.')
+}
+
+function toUserFriendlyEmotion(value) {
+  if (!value) return '분석 중'
+
+  const mapping = {
+    배고픔: '배고파요',
+    잠와요: '잠와요',
+    피곤함: '잠와요',
+    불편함: '불편해요',
+    '안정 상태': '괜찮아요',
+    안정상태: '괜찮아요',
+  }
+
+  return mapping[value] || value
+}
+
+function getEmotionIcon(value) {
+  const key = String(value || '')
+
+  if (key.includes('feeding') || key.includes('배고')) {
+    return '🍼'
+  }
+
+  if (key.includes('sleep') || key.includes('잠') || key.includes('피곤')) {
+    return '🌙'
+  }
+
+  if (key.includes('care') || key.includes('불편')) {
+    return '🌡️'
+  }
+
+  if (key.includes('stable') || key.includes('안정')) {
+    return '😊'
+  }
+
+  return '👶'
 }
 
 function sleep(ms) {
