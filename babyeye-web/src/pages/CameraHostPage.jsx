@@ -17,6 +17,7 @@ const peerConfig = {
 }
 
 const ANALYSIS_INTERVAL_MS = 5000
+const AUDIO_SAMPLE_RATE = 16000
 
 function CameraHostPage() {
   const videoRef = useRef(null)
@@ -228,7 +229,7 @@ function CameraHostPage() {
       setAnalysisStatus('5초 오디오와 현재 프레임을 수집하는 중입니다...')
 
       const [audioFile, frameFile] = await Promise.all([
-        recordAudioClip(streamRef.current, ANALYSIS_INTERVAL_MS),
+        recordAudioClipAsWav(streamRef.current, ANALYSIS_INTERVAL_MS),
         captureCurrentFrame(),
       ])
 
@@ -265,85 +266,61 @@ function CameraHostPage() {
     }
   }
 
-  async function recordAudioClip(mediaStream, durationMs) {
-    if (typeof MediaRecorder === 'undefined') {
-      return null
-    }
-
+  async function recordAudioClipAsWav(mediaStream, durationMs) {
     const audioTracks = mediaStream.getAudioTracks()
 
     if (!audioTracks || audioTracks.length === 0) {
       return null
     }
 
-    const mimeType = getSupportedAudioMimeType()
+    const AudioContextClass = window.AudioContext || window.webkitAudioContext
 
-    if (!mimeType) {
+    if (!AudioContextClass) {
       return null
     }
 
-    const audioStream = new MediaStream(audioTracks)
+    const audioContext = new AudioContextClass()
+    await audioContext.resume().catch(() => {})
 
-    return new Promise((resolve) => {
-      const chunks = []
+    const source = audioContext.createMediaStreamSource(new MediaStream(audioTracks))
+    const processor = audioContext.createScriptProcessor(4096, 1, 1)
+    const chunks = []
 
-      let recorder
+    processor.onaudioprocess = (event) => {
+      const input = event.inputBuffer.getChannelData(0)
+      chunks.push(new Float32Array(input))
+    }
 
-      try {
-        recorder = new MediaRecorder(audioStream, { mimeType })
-      } catch {
-        resolve(null)
-        return
-      }
+    source.connect(processor)
+    processor.connect(audioContext.destination)
 
-      const timeout = window.setTimeout(() => {
-        try {
-          if (recorder.state !== 'inactive') {
-            recorder.stop()
-          }
-        } catch {
-          resolve(null)
-        }
-      }, durationMs)
+    await sleep(durationMs)
 
-      recorder.ondataavailable = (event) => {
-        if (event.data && event.data.size > 0) {
-          chunks.push(event.data)
-        }
-      }
+    try {
+      processor.disconnect()
+      source.disconnect()
+    } catch {
+      // ignore
+    }
 
-      recorder.onerror = () => {
-        window.clearTimeout(timeout)
-        resolve(null)
-      }
+    const originalSampleRate = audioContext.sampleRate
 
-      recorder.onstop = () => {
-        window.clearTimeout(timeout)
+    await audioContext.close().catch(() => {})
 
-        if (chunks.length === 0) {
-          resolve(null)
-          return
-        }
+    if (chunks.length === 0) {
+      return null
+    }
 
-        const blob = new Blob(chunks, { type: mimeType })
-        const extension = getAudioExtensionByMimeType(mimeType)
+    const merged = mergeFloat32Arrays(chunks)
+    const resampled = resampleFloat32(merged, originalSampleRate, AUDIO_SAMPLE_RATE)
+    const wavBuffer = encodeWav(resampled, AUDIO_SAMPLE_RATE)
+    const wavBlob = new Blob([wavBuffer], { type: 'audio/wav' })
 
-        resolve(
-          new File(
-            [blob],
-            'live_audio_' + Date.now() + extension,
-            { type: mimeType }
-          )
-        )
-      }
-
-      try {
-        recorder.start()
-      } catch {
-        window.clearTimeout(timeout)
-        resolve(null)
-      }
-    })
+    return new File(
+      [wavBlob],
+      'live_audio_' + Date.now() + '.wav',
+      { type: 'audio/wav' }
+    )
   }
 
   async function captureCurrentFrame() {
@@ -469,7 +446,7 @@ function CameraHostPage() {
               <div>
                 <p className='text-sm font-semibold text-blue-200'>실시간 AI 분석</p>
                 <p className='mt-1 text-xs leading-5 text-slate-400'>
-                  홈캠 실행 중 5초마다 프레임과 오디오를 분석합니다.
+                  홈캠 실행 중 5초마다 프레임과 WAV 오디오를 분석합니다.
                 </p>
               </div>
 
@@ -581,42 +558,77 @@ async function waitForInferenceCompleted(requestId) {
   throw new Error('분석 작업 시간이 초과되었습니다.')
 }
 
-function getSupportedAudioMimeType() {
-  if (typeof MediaRecorder === 'undefined') {
-    return ''
-  }
+function mergeFloat32Arrays(chunks) {
+  const totalLength = chunks.reduce((sum, chunk) => sum + chunk.length, 0)
+  const result = new Float32Array(totalLength)
 
-  const candidates = [
-    'audio/webm;codecs=opus',
-    'audio/webm',
-    'audio/ogg;codecs=opus',
-    'audio/ogg',
-    'audio/mp4',
-  ]
+  let offset = 0
 
-  for (const mimeType of candidates) {
-    if (MediaRecorder.isTypeSupported(mimeType)) {
-      return mimeType
-    }
-  }
+  chunks.forEach((chunk) => {
+    result.set(chunk, offset)
+    offset += chunk.length
+  })
 
-  return ''
+  return result
 }
 
-function getAudioExtensionByMimeType(mimeType) {
-  if (mimeType.includes('webm')) {
-    return '.webm'
+function resampleFloat32(input, inputSampleRate, outputSampleRate) {
+  if (inputSampleRate === outputSampleRate) {
+    return input
   }
 
-  if (mimeType.includes('ogg')) {
-    return '.ogg'
+  const ratio = inputSampleRate / outputSampleRate
+  const outputLength = Math.round(input.length / ratio)
+  const output = new Float32Array(outputLength)
+
+  for (let i = 0; i < outputLength; i += 1) {
+    const sourceIndex = i * ratio
+    const leftIndex = Math.floor(sourceIndex)
+    const rightIndex = Math.min(leftIndex + 1, input.length - 1)
+    const weight = sourceIndex - leftIndex
+
+    output[i] = input[leftIndex] * (1 - weight) + input[rightIndex] * weight
   }
 
-  if (mimeType.includes('mp4')) {
-    return '.m4a'
-  }
+  return output
+}
 
-  return '.webm'
+function encodeWav(samples, sampleRate) {
+  const buffer = new ArrayBuffer(44 + samples.length * 2)
+  const view = new DataView(buffer)
+
+  writeString(view, 0, 'RIFF')
+  view.setUint32(4, 36 + samples.length * 2, true)
+  writeString(view, 8, 'WAVE')
+  writeString(view, 12, 'fmt ')
+  view.setUint32(16, 16, true)
+  view.setUint16(20, 1, true)
+  view.setUint16(22, 1, true)
+  view.setUint32(24, sampleRate, true)
+  view.setUint32(28, sampleRate * 2, true)
+  view.setUint16(32, 2, true)
+  view.setUint16(34, 16, true)
+  writeString(view, 36, 'data')
+  view.setUint32(40, samples.length * 2, true)
+
+  floatTo16BitPCM(view, 44, samples)
+
+  return buffer
+}
+
+function floatTo16BitPCM(view, offset, input) {
+  for (let i = 0; i < input.length; i += 1) {
+    const sample = Math.max(-1, Math.min(1, input[i]))
+    const value = sample < 0 ? sample * 0x8000 : sample * 0x7fff
+    view.setInt16(offset, value, true)
+    offset += 2
+  }
+}
+
+function writeString(view, offset, value) {
+  for (let i = 0; i < value.length; i += 1) {
+    view.setUint8(offset + i, value.charCodeAt(i))
+  }
 }
 
 function toUserFriendlyEmotion(value) {
