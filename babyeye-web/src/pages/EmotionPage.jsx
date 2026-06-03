@@ -100,7 +100,7 @@ function EmotionPage() {
                         key={prediction.emotion + index}
                         className='rounded-full bg-blue-400/10 px-3 py-1 text-xs font-semibold text-blue-200'
                       >
-                        TOP {index + 1} {toUserFriendlyEmotion(prediction.emotion)} {Math.round((prediction.confidence || 0) * 100)}%
+                        {toUserFriendlyEmotion(prediction.emotion)} {Math.round((prediction.confidence || 0) * 100)}%
                       </span>
                     ))}
                   </div>
