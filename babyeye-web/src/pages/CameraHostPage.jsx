@@ -254,7 +254,7 @@ function CameraHostPage() {
       <Card>
         <p className='text-sm font-semibold text-blue-200'>시연 안내</p>
         <p className='mt-2 text-sm leading-6 text-slate-400'>
-          이 화면은 공기계 휴대폰에서 열어두고, 노트북에서는 라이브 피드 탭에서 해당 세션을 선택하면 됩니다.
+          이 화면은 휴대폰에서 열어두고, 노트북에서는 라이브 피드 탭에서 해당 세션을 선택하면 됩니다.
         </p>
       </Card>
     </main>

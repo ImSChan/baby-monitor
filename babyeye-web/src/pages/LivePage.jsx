@@ -310,7 +310,7 @@ function LivePage() {
           <div>
             <h2 className='text-lg font-bold'>휴대폰 홈캠 PoC</h2>
             <p className='mt-1 text-sm text-slate-400'>
-              공기계 휴대폰에서 Camera Host 화면을 열고 홈캠을 시작하세요.
+              휴대폰에서 Camera Host 화면을 열고 홈캠을 시작하세요.
             </p>
           </div>
           <Smartphone size={24} className='text-blue-300' />
