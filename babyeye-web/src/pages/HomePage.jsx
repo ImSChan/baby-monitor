@@ -27,7 +27,6 @@ import {
   buildLiveWebSocketUrl,
   getLiveSessions,
 } from '../api/liveApi'
-import { useApi } from '../hooks/api/useApi'
 import { preprocessVideoForInference } from '../utils/videoPreprocess'
 
 const peerConfig = {
@@ -42,7 +41,11 @@ function HomePage() {
   const socketRef = useRef(null)
   const peerRef = useRef(null)
 
-  const [reloadKey, setReloadKey] = useState(0)
+  const [dashboardData, setDashboardData] = useState(null)
+  const [initialLoading, setInitialLoading] = useState(true)
+  const [dashboardError, setDashboardError] = useState(null)
+  const [refreshingDashboard, setRefreshingDashboard] = useState(false)
+
   const [uploading, setUploading] = useState(false)
   const [uploadMessage, setUploadMessage] = useState('')
   const [uploadError, setUploadError] = useState('')
@@ -54,17 +57,16 @@ function HomePage() {
   const [liveError, setLiveError] = useState('')
   const [liveConnecting, setLiveConnecting] = useState(false)
 
-  const { data, loading, error } = useApi(getDashboard, [reloadKey])
-
   useEffect(() => {
+    loadDashboard({ initial: true })
     loadLiveSessions()
 
-    const timer = window.setInterval(() => {
+    const sessionTimer = window.setInterval(() => {
       loadLiveSessions()
     }, 5000)
 
     return () => {
-      window.clearInterval(timer)
+      window.clearInterval(sessionTimer)
       stopLiveViewer()
     }
   }, [])
@@ -74,16 +76,35 @@ function HomePage() {
       return undefined
     }
 
-    setReloadKey((prev) => prev + 1)
+    loadDashboard({ silent: true })
 
     const dashboardTimer = window.setInterval(() => {
-      setReloadKey((prev) => prev + 1)
+      loadDashboard({ silent: true })
     }, 5000)
 
     return () => {
       window.clearInterval(dashboardTimer)
     }
   }, [selectedSession])
+
+  async function loadDashboard(options = {}) {
+    try {
+      if (options.initial) {
+        setInitialLoading(true)
+      } else if (!options.silent) {
+        setRefreshingDashboard(true)
+      }
+
+      const result = await getDashboard()
+      setDashboardData(result)
+      setDashboardError(null)
+    } catch (err) {
+      setDashboardError(err)
+    } finally {
+      setInitialLoading(false)
+      setRefreshingDashboard(false)
+    }
+  }
 
   async function loadLiveSessions() {
     try {
@@ -219,7 +240,7 @@ function HomePage() {
       setSelectedSession(null)
       setLiveStatus('라이브 세션 대기 중')
       setLiveError('')
-      setReloadKey((prev) => prev + 1)
+      loadDashboard({ silent: true })
     }
   }
 
@@ -286,7 +307,7 @@ function HomePage() {
       })
 
       setUploadMessage('영상 분석이 완료되었습니다.')
-      setReloadKey((prev) => prev + 1)
+      await loadDashboard({ silent: true })
     } catch (err) {
       setUploadError(err.message || '영상 분석 요청 중 오류가 발생했습니다.')
       setUploadMessage('')
@@ -299,30 +320,30 @@ function HomePage() {
     }
   }
 
-  const currentEmotion = data?.currentEmotion
-  const environment = data?.environment
-  const cameras = data?.cameras
-  const alerts = data?.alerts || []
+  const currentEmotion = dashboardData?.currentEmotion
+  const environment = dashboardData?.environment
+  const cameras = dashboardData?.cameras
+  const alerts = dashboardData?.alerts || []
   const currentPredictions = getTopPredictions(currentEmotion)
 
   return (
     <main className='px-5 py-6'>
       <Header />
 
-      {loading && (
+      {initialLoading && (
         <Card>
           <p className='text-sm text-slate-300'>대시보드 정보를 불러오는 중입니다...</p>
         </Card>
       )}
 
-      {error && (
+      {dashboardError && !dashboardData && (
         <Card>
           <p className='font-semibold text-rose-300'>데이터를 불러오지 못했습니다.</p>
-          <p className='mt-2 text-sm text-slate-400'>{error.message}</p>
+          <p className='mt-2 text-sm text-slate-400'>{dashboardError.message}</p>
         </Card>
       )}
 
-      {!loading && !error && (
+      {!initialLoading && dashboardData && (
         <>
           <section className='mb-5 overflow-hidden rounded-[32px] border border-slate-700/70 bg-slate-900 shadow-card'>
             <div className='relative flex h-64 items-center justify-center bg-gradient-to-br from-slate-800 via-slate-900 to-indigo-950'>
@@ -352,6 +373,12 @@ function HomePage() {
                   {selectedSession ? 'LIVE' : liveSessions.length > 0 ? 'READY' : 'OFFLINE'}
                 </StatusBadge>
               </div>
+
+              {refreshingDashboard && selectedSession && (
+                <div className='absolute right-4 top-4 rounded-full bg-black/50 px-3 py-1 text-[11px] text-slate-200'>
+                  분석 결과 갱신 중
+                </div>
+              )}
 
               {selectedSession && (
                 <div className='absolute bottom-4 left-4 right-4 rounded-2xl bg-black/55 p-3 text-xs text-slate-100'>
