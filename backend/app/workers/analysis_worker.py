@@ -74,6 +74,8 @@ def process_job(job: dict):
             metadata=metadata,
         )
 
+        top_predictions = inference_result.get("topPredictions", [])
+
         with Session(engine) as session:
             event = EmotionEvent(
                 user_id=job["user_id"],
@@ -82,6 +84,7 @@ def process_job(job: dict):
                 confidence=float(inference_result["confidence"]),
                 need=inference_result.get("need"),
                 message=inference_result.get("message"),
+                top_predictions=top_predictions,
                 captured_at=parse_captured_at(job.get("captured_at")),
             )
 
@@ -111,7 +114,7 @@ def process_job(job: dict):
                     "message": event.message,
                     "capturedAt": event.captured_at.isoformat() if event.captured_at else None,
                     "createdAt": event.created_at.isoformat() if event.created_at else None,
-                    "topPredictions": inference_result.get("topPredictions", []),
+                    "topPredictions": top_predictions,
                     "fusionMethod": inference_result.get("fusion_method"),
                 },
             }
@@ -120,6 +123,7 @@ def process_job(job: dict):
         metadata["status_message"] = "분석이 완료되었습니다."
         metadata["completed_at"] = kst_now().isoformat()
         metadata["result"] = result_payload["result"]
+        metadata["top_predictions"] = top_predictions
         write_metadata(job["metadata_path"], metadata)
 
         set_job_status(

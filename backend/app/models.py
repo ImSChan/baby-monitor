@@ -1,6 +1,7 @@
 ﻿from datetime import datetime
-from typing import Optional
+from typing import Any, Optional
 
+from sqlalchemy import Column, JSON
 from sqlmodel import Field, SQLModel
 
 from app.utils.time import kst_now
@@ -44,6 +45,7 @@ class EmotionEvent(SQLModel, table=True):
     confidence: float
     need: Optional[str] = None
     message: Optional[str] = None
+    top_predictions: list[dict[str, Any]] | None = Field(default=None, sa_column=Column(JSON))
     captured_at: datetime = Field(default_factory=kst_now)
     created_at: datetime = Field(default_factory=kst_now)
 

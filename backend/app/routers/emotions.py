@@ -14,11 +14,16 @@ def get_current_emotion(
     session: Session = Depends(get_session),
     current_user_id: int = Depends(get_current_user_id),
 ):
-    return session.exec(
+    event = session.exec(
         select(EmotionEvent)
         .where(EmotionEvent.user_id == current_user_id)
         .order_by(EmotionEvent.created_at.desc())
     ).first()
+
+    if event is None:
+        return None
+
+    return to_emotion_response(event)
 
 
 @router.get("/history")
@@ -26,12 +31,14 @@ def get_emotion_history(
     session: Session = Depends(get_session),
     current_user_id: int = Depends(get_current_user_id),
 ):
-    return session.exec(
+    events = session.exec(
         select(EmotionEvent)
         .where(EmotionEvent.user_id == current_user_id)
         .order_by(EmotionEvent.created_at.desc())
         .limit(20)
     ).all()
+
+    return [to_emotion_response(event) for event in events]
 
 
 @router.post("")
@@ -57,10 +64,46 @@ def create_emotion_event(
         confidence=event_data.confidence,
         need=event_data.need,
         message=event_data.message,
+        top_predictions=[
+            {
+                "emotion": event_data.emotion,
+                "confidence": event_data.confidence,
+                "need": event_data.need,
+                "message": event_data.message,
+            }
+        ],
     )
 
     session.add(event)
     session.commit()
     session.refresh(event)
 
-    return event
+    return to_emotion_response(event)
+
+
+def to_emotion_response(event: EmotionEvent) -> dict:
+    top_predictions = getattr(event, "top_predictions", None) or []
+
+    if not top_predictions:
+        top_predictions = [
+            {
+                "emotion": event.emotion,
+                "confidence": event.confidence,
+                "need": event.need,
+                "message": event.message,
+            }
+        ]
+
+    return {
+        "id": event.id,
+        "user_id": event.user_id,
+        "camera_id": event.camera_id,
+        "emotion": event.emotion,
+        "confidence": event.confidence,
+        "need": event.need,
+        "message": event.message,
+        "captured_at": event.captured_at,
+        "created_at": event.created_at,
+        "topPredictions": top_predictions,
+        "top_predictions": top_predictions,
+    }
