@@ -1,4 +1,4 @@
-﻿import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import {
   AlertCircle,
   Baby,
@@ -129,12 +129,19 @@ function HomePage() {
 
       peer.ontrack = (event) => {
         const [stream] = event.streams
+        const video = remoteVideoRef.current
 
-        if (remoteVideoRef.current) {
-          remoteVideoRef.current.srcObject = stream
+        if (video && stream) {
+          video.srcObject = stream
+          video.muted = true
+          video.playsInline = true
+
+          video.play().catch(() => {
+            setLiveStatus('영상 스트림은 수신했지만 자동 재생이 차단되었습니다. 화면을 한 번 터치해주세요.')
+          })
         }
 
-        setLiveStatus('실시간 영상 수신 중입니다.')
+        setLiveStatus('실시간 영상 스트림 수신 중입니다.')
       }
 
       peer.onicecandidate = (event) => {
@@ -351,7 +358,7 @@ function HomePage() {
                 ref={remoteVideoRef}
                 autoPlay
                 playsInline
-                muted={false}
+                muted
                 controls={false}
                 className={selectedSession ? 'h-full w-full object-cover' : 'hidden'}
               />
