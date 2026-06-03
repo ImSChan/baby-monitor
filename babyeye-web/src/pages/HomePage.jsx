@@ -69,12 +69,28 @@ function HomePage() {
     }
   }, [])
 
+  useEffect(() => {
+    if (!selectedSession) {
+      return undefined
+    }
+
+    setReloadKey((prev) => prev + 1)
+
+    const dashboardTimer = window.setInterval(() => {
+      setReloadKey((prev) => prev + 1)
+    }, 5000)
+
+    return () => {
+      window.clearInterval(dashboardTimer)
+    }
+  }, [selectedSession])
+
   async function loadLiveSessions() {
     try {
       const sessions = await getLiveSessions()
       setLiveSessions(sessions || [])
     } catch {
-      // 라이브 세션 조회 실패는 홈 화면 전체 오류로 처리하지 않음
+      // 홈 화면 전체 오류로 처리하지 않음
     }
   }
 
@@ -203,6 +219,7 @@ function HomePage() {
       setSelectedSession(null)
       setLiveStatus('라이브 세션 대기 중')
       setLiveError('')
+      setReloadKey((prev) => prev + 1)
     }
   }
 
@@ -315,11 +332,7 @@ function HomePage() {
                 playsInline
                 muted={false}
                 controls={false}
-                className={
-                  selectedSession
-                    ? 'h-full w-full object-cover'
-                    : 'hidden'
-                }
+                className={selectedSession ? 'h-full w-full object-cover' : 'hidden'}
               />
 
               {!selectedSession && (
@@ -427,7 +440,7 @@ function HomePage() {
                     <Baby size={24} />
                   </div>
                   <div>
-                    <p className='text-xs font-semibold text-blue-200'>실시간 분석 상태</p>
+                    <p className='text-xs font-semibold text-blue-200'>최근 AI 분석 결과</p>
                     <h3 className='text-lg font-bold text-white'>현재 아기가 우는 이유</h3>
                   </div>
                 </div>
@@ -466,7 +479,7 @@ function HomePage() {
                 )}
 
                 <p className='mt-4 text-xs leading-5 text-slate-400'>
-                  홈캠 실시간 분석 결과가 저장되면 이 영역에 최신 상태 후보 2개가 반영됩니다.
+                  홈캠에서 5초 단위 분석이 완료되면 최신 상태 후보 2개가 자동으로 갱신됩니다.
                 </p>
               </div>
             </div>
