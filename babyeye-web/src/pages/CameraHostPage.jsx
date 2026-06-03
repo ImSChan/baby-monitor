@@ -23,8 +23,9 @@ function CameraHostPage() {
   const streamRef = useRef(null)
   const socketRef = useRef(null)
   const peerRef = useRef(null)
-  const audioRecorderRef = useRef(null)
+  const analysisTimerRef = useRef(null)
   const analysisRunningRef = useRef(false)
+  const stopRequestedRef = useRef(false)
 
   const [sessionId, setSessionId] = useState('')
   const [status, setStatus] = useState('idle')
@@ -77,9 +78,10 @@ function CameraHostPage() {
       socket.onopen = () => {
         setStatus('홈캠이 시작되었습니다. 시청자 연결을 기다리는 중입니다.')
         setIsStreaming(true)
+        stopRequestedRef.current = false
 
         if (analysisEnabled) {
-          startRealtimeAnalysis(mediaStream)
+          startRealtimeAnalysisLoop()
         }
       }
 
@@ -121,7 +123,7 @@ function CameraHostPage() {
       }
 
       socket.onclose = () => {
-        stopRealtimeAnalysis()
+        stopRealtimeAnalysisLoop()
 
         if (isStreaming) {
           setStatus('라이브 세션 연결이 종료되었습니다.')
@@ -181,118 +183,61 @@ function CameraHostPage() {
     setStatus('시청자에게 라이브 연결 요청을 보냈습니다.')
   }
 
-  function startRealtimeAnalysis(mediaStream) {
-    if (audioRecorderRef.current) {
+  function startRealtimeAnalysisLoop() {
+    if (analysisTimerRef.current) {
       return
     }
 
-    if (typeof MediaRecorder === 'undefined') {
-      setAnalysisStatus('이 브라우저는 MediaRecorder를 지원하지 않습니다.')
-      return
-    }
-
-    const audioTracks = mediaStream.getAudioTracks()
-
-    if (!audioTracks || audioTracks.length === 0) {
-      setAnalysisStatus('오디오 트랙이 없어 프레임만 분석합니다.')
-      startFrameOnlyAnalysis()
-      return
-    }
-
-    const mimeType = getSupportedAudioMimeType()
-
-    if (!mimeType) {
-      setAnalysisStatus('지원 가능한 오디오 녹음 형식이 없습니다.')
-      startFrameOnlyAnalysis()
-      return
-    }
-
-    const audioStream = new MediaStream(audioTracks)
-    const recorder = new MediaRecorder(audioStream, { mimeType })
-
-    recorder.ondataavailable = async (event) => {
-      if (!analysisEnabled) {
-        return
-      }
-
-      if (!event.data || event.data.size === 0) {
-        return
-      }
-
-      if (analysisRunningRef.current) {
-        return
-      }
-
-      const extension = getAudioExtensionByMimeType(mimeType)
-      const audioFile = new File(
-        [event.data],
-        'live_audio_' + Date.now() + extension,
-        { type: mimeType }
-      )
-
-      await requestRealtimeInference(audioFile)
-    }
-
-    recorder.onerror = () => {
-      setAnalysisStatus('오디오 녹음 중 오류가 발생했습니다.')
-    }
-
-    recorder.start(ANALYSIS_INTERVAL_MS)
-    audioRecorderRef.current = recorder
+    stopRequestedRef.current = false
     setAnalysisStatus('5초 단위 실시간 분석을 시작했습니다.')
-  }
 
-  function startFrameOnlyAnalysis() {
-    const timer = window.setInterval(async () => {
-      if (!analysisEnabled || analysisRunningRef.current) {
-        return
-      }
+    runAnalysisOnce()
 
-      await requestRealtimeInference(null)
+    analysisTimerRef.current = window.setInterval(() => {
+      runAnalysisOnce()
     }, ANALYSIS_INTERVAL_MS)
-
-    audioRecorderRef.current = {
-      stop: () => window.clearInterval(timer),
-      state: 'recording',
-    }
-
-    setAnalysisStatus('5초 단위 프레임 분석을 시작했습니다.')
   }
 
-  function stopRealtimeAnalysis() {
+  function stopRealtimeAnalysisLoop() {
+    stopRequestedRef.current = true
     analysisRunningRef.current = false
 
-    if (audioRecorderRef.current) {
-      try {
-        if (
-          audioRecorderRef.current.state &&
-          audioRecorderRef.current.state !== 'inactive'
-        ) {
-          audioRecorderRef.current.stop()
-        } else if (typeof audioRecorderRef.current.stop === 'function') {
-          audioRecorderRef.current.stop()
-        }
-      } catch {
-        // ignore
-      }
-
-      audioRecorderRef.current = null
+    if (analysisTimerRef.current) {
+      window.clearInterval(analysisTimerRef.current)
+      analysisTimerRef.current = null
     }
 
     setAnalysisStatus('분석이 중지되었습니다.')
   }
 
-  async function requestRealtimeInference(audioFile) {
+  async function runAnalysisOnce() {
+    if (!analysisEnabled || stopRequestedRef.current) {
+      return
+    }
+
+    if (analysisRunningRef.current) {
+      return
+    }
+
+    if (!streamRef.current) {
+      return
+    }
+
     try {
       analysisRunningRef.current = true
-      setAnalysisStatus('현재 프레임과 오디오를 분석 서버로 전송 중입니다...')
+      setAnalysisStatus('5초 오디오와 현재 프레임을 수집하는 중입니다...')
 
-      const frameFile = await captureCurrentFrame()
+      const [audioFile, frameFile] = await Promise.all([
+        recordAudioClip(streamRef.current, ANALYSIS_INTERVAL_MS),
+        captureCurrentFrame(),
+      ])
 
-      if (!frameFile && !audioFile) {
+      if (!audioFile && !frameFile) {
         setAnalysisStatus('분석할 프레임 또는 오디오가 없습니다.')
         return
       }
+
+      setAnalysisStatus('분석 서버로 전송 중입니다...')
 
       const queued = await requestMultimodalInference({
         audioFile,
@@ -318,6 +263,87 @@ function CameraHostPage() {
     } finally {
       analysisRunningRef.current = false
     }
+  }
+
+  async function recordAudioClip(mediaStream, durationMs) {
+    if (typeof MediaRecorder === 'undefined') {
+      return null
+    }
+
+    const audioTracks = mediaStream.getAudioTracks()
+
+    if (!audioTracks || audioTracks.length === 0) {
+      return null
+    }
+
+    const mimeType = getSupportedAudioMimeType()
+
+    if (!mimeType) {
+      return null
+    }
+
+    const audioStream = new MediaStream(audioTracks)
+
+    return new Promise((resolve) => {
+      const chunks = []
+
+      let recorder
+
+      try {
+        recorder = new MediaRecorder(audioStream, { mimeType })
+      } catch {
+        resolve(null)
+        return
+      }
+
+      const timeout = window.setTimeout(() => {
+        try {
+          if (recorder.state !== 'inactive') {
+            recorder.stop()
+          }
+        } catch {
+          resolve(null)
+        }
+      }, durationMs)
+
+      recorder.ondataavailable = (event) => {
+        if (event.data && event.data.size > 0) {
+          chunks.push(event.data)
+        }
+      }
+
+      recorder.onerror = () => {
+        window.clearTimeout(timeout)
+        resolve(null)
+      }
+
+      recorder.onstop = () => {
+        window.clearTimeout(timeout)
+
+        if (chunks.length === 0) {
+          resolve(null)
+          return
+        }
+
+        const blob = new Blob(chunks, { type: mimeType })
+        const extension = getAudioExtensionByMimeType(mimeType)
+
+        resolve(
+          new File(
+            [blob],
+            'live_audio_' + Date.now() + extension,
+            { type: mimeType }
+          )
+        )
+      }
+
+      try {
+        recorder.start()
+      } catch {
+        window.clearTimeout(timeout)
+        resolve(null)
+      }
+    })
   }
 
   async function captureCurrentFrame() {
@@ -365,7 +391,7 @@ function CameraHostPage() {
   }
 
   function stopStreaming() {
-    stopRealtimeAnalysis()
+    stopRealtimeAnalysisLoop()
     closePeer()
 
     if (socketRef.current) {
@@ -451,12 +477,13 @@ function CameraHostPage() {
                 type='checkbox'
                 checked={analysisEnabled}
                 onChange={(event) => {
-                  setAnalysisEnabled(event.target.checked)
+                  const checked = event.target.checked
+                  setAnalysisEnabled(checked)
 
-                  if (!event.target.checked) {
-                    stopRealtimeAnalysis()
+                  if (!checked) {
+                    stopRealtimeAnalysisLoop()
                   } else if (isStreaming && streamRef.current) {
-                    startRealtimeAnalysis(streamRef.current)
+                    startRealtimeAnalysisLoop()
                   }
                 }}
                 className='h-5 w-5'
