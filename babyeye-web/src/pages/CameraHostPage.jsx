@@ -18,8 +18,8 @@ const peerConfig = {
 
 const ANALYSIS_INTERVAL_MS = 5000
 const AUDIO_SAMPLE_RATE = 16000
-const QUIET_RMS_DBFS_THRESHOLD = -38
-const QUIET_PEAK_DBFS_THRESHOLD = -25
+const QUIET_RMS_DBFS_THRESHOLD = -24
+const QUIET_PEAK_DBFS_THRESHOLD = -8
 
 function CameraHostPage() {
   const videoRef = useRef(null)

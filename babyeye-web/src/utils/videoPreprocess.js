@@ -295,7 +295,7 @@ function calculateDbfsMetrics(samples) {
   return {
     rmsDbfs,
     peakDbfs,
-    quietAudio: rmsDbfs <= -38 && peakDbfs <= -25,
+    quietAudio: rmsDbfs <= -24 && peakDbfs <= -8,
   }
 }
 

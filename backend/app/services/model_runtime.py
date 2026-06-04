@@ -1,4 +1,4 @@
-﻿from pathlib import Path
+from pathlib import Path
 from typing import Any
 
 import gdown
@@ -20,8 +20,8 @@ FACE_MODEL_GDRIVE_ID = "1rt1e8aVNJCALvF5CJZNqshyfIT2wqXf9"
 WAVLM_MODEL_GDRIVE_ID = "1uZ1TydQQClSBJRAXN-GHdyoaxPWyjZl_"
 
 NORMAL_CONFIDENCE_THRESHOLD = 0.60
-QUIET_RMS_DBFS_THRESHOLD = -38.0
-QUIET_PEAK_DBFS_THRESHOLD = -25.0
+QUIET_RMS_DBFS_THRESHOLD = -24.0
+QUIET_PEAK_DBFS_THRESHOLD = -8.0
 
 AUDIO_LABELS = [
     "belly pain",
@@ -457,9 +457,9 @@ def is_quiet_audio(metadata: dict[str, Any]) -> bool:
     if rms_dbfs is None or peak_dbfs is None:
         return False
 
-    return (
-        rms_dbfs <= QUIET_RMS_DBFS_THRESHOLD
-        and peak_dbfs <= QUIET_PEAK_DBFS_THRESHOLD
+    return not (
+        rms_dbfs > QUIET_RMS_DBFS_THRESHOLD
+        and peak_dbfs > QUIET_PEAK_DBFS_THRESHOLD
     )
 
 
