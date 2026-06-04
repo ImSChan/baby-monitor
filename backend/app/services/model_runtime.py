@@ -1,8 +1,8 @@
-from pathlib import Path
+﻿from pathlib import Path
+from typing import Any
 
 import gdown
 import librosa
-import numpy as np
 import torch
 import torch.nn as nn
 from PIL import Image
@@ -53,7 +53,7 @@ _wavlm_model = None
 _efficientnet_model = None
 
 
-def ensure_weights():
+def ensure_weights() -> None:
     if not FACE_MODEL_PATH.exists():
         gdown.download(
             id=FACE_MODEL_GDRIVE_ID,
@@ -81,18 +81,22 @@ def get_high_perf_model(num_classes: int):
     return model
 
 
-def load_models():
+def load_models() -> None:
     global _feature_extractor
     global _wavlm_model
     global _efficientnet_model
 
-    if _feature_extractor is not None and _wavlm_model is not None and _efficientnet_model is not None:
+    if (
+        _feature_extractor is not None
+        and _wavlm_model is not None
+        and _efficientnet_model is not None
+    ):
         return
 
     ensure_weights()
 
-    id2label = {i: name for i, name in enumerate(AUDIO_LABELS)}
-    label2id = {name: i for i, name in enumerate(AUDIO_LABELS)}
+    id2label = {index: name for index, name in enumerate(AUDIO_LABELS)}
+    label2id = {name: index for index, name in enumerate(AUDIO_LABELS)}
 
     _feature_extractor = Wav2Vec2FeatureExtractor.from_pretrained(str(WAVLM_MODEL_DIR))
 
@@ -123,8 +127,8 @@ def load_models():
 def predict_from_paths(
     audio_path: str | None,
     frame_paths: list[str],
-    metadata: dict | None = None,
-) -> dict:
+    metadata: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     metadata = metadata or {}
 
     if is_quiet_audio(metadata):
@@ -133,6 +137,7 @@ def predict_from_paths(
             image_result=None,
             fusion_method="quiet_audio_override",
             message="음성 크기가 낮아 울음 상태가 아닌 안정 상태로 판단했습니다.",
+            normal_override_reason="quiet_audio",
             metadata=metadata,
         )
 
@@ -141,7 +146,11 @@ def predict_from_paths(
     audio_result = predict_audio(audio_path) if audio_path else None
     image_result = predict_images(frame_paths) if frame_paths else None
 
-    final_result = fuse_results(audio_result, image_result, metadata)
+    final_result = fuse_results(
+        audio_result=audio_result,
+        image_result=image_result,
+        metadata=metadata,
+    )
 
     return {
         "audio_result": audio_result,
@@ -162,7 +171,7 @@ def predict_from_paths(
     }
 
 
-def predict_audio(audio_path: str) -> dict:
+def predict_audio(audio_path: str) -> dict[str, Any]:
     waveform, _ = librosa.load(audio_path, sr=16000, mono=True)
 
     inputs = _feature_extractor(
@@ -182,8 +191,8 @@ def predict_audio(audio_path: str) -> dict:
         raw_label = AUDIO_LABELS[pred_id]
 
     raw_probabilities = {
-        AUDIO_LABELS[i]: float(probabilities[0][i].item())
-        for i in range(len(AUDIO_LABELS))
+        AUDIO_LABELS[index]: float(probabilities[0][index].item())
+        for index in range(len(AUDIO_LABELS))
     }
 
     normalized_label = normalize_audio_label(raw_label)
@@ -200,7 +209,7 @@ def predict_audio(audio_path: str) -> dict:
     }
 
 
-def predict_images(frame_paths: list[str]) -> dict | None:
+def predict_images(frame_paths: list[str]) -> dict[str, Any] | None:
     transform = transforms.Compose([
         transforms.Resize((224, 224)),
         transforms.ToTensor(),
@@ -227,15 +236,15 @@ def predict_images(frame_paths: list[str]) -> dict | None:
             "confidence": float(confidence),
             "frame_path": frame_path,
             "probabilities": {
-                IMAGE_LABELS[i]: float(probabilities[0][i].item())
-                for i in range(len(IMAGE_LABELS))
+                IMAGE_LABELS[index]: float(probabilities[0][index].item())
+                for index in range(len(IMAGE_LABELS))
             },
         })
 
     if not predictions:
         return None
 
-    label_scores = {}
+    label_scores: dict[str, float] = {}
 
     for item in predictions:
         label_scores[item["label"]] = label_scores.get(item["label"], 0.0) + item["confidence"]
@@ -257,10 +266,10 @@ def predict_images(frame_paths: list[str]) -> dict | None:
 
 
 def fuse_results(
-    audio_result: dict | None,
-    image_result: dict | None,
-    metadata: dict | None = None,
-) -> dict:
+    audio_result: dict[str, Any] | None,
+    image_result: dict[str, Any] | None,
+    metadata: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     metadata = metadata or {}
 
     if is_quiet_audio(metadata):
@@ -268,11 +277,14 @@ def fuse_results(
             confidence=1.0,
             message="음성 크기가 낮아 울음 상태가 아닌 안정 상태로 판단했습니다.",
         )
-        normal["topPredictions"] = [normal]
-        normal["fusion_method"] = "quiet_audio_override"
-        normal["normalOverride"] = True
-        normal["normalOverrideReason"] = "quiet_audio"
-        return normal
+
+        return {
+            **normal,
+            "topPredictions": [prediction_copy(normal)],
+            "fusion_method": "quiet_audio_override",
+            "normalOverride": True,
+            "normalOverrideReason": "quiet_audio",
+        }
 
     candidates = build_state_candidates(audio_result, image_result)
 
@@ -287,11 +299,14 @@ def fuse_results(
             confidence=1.0,
             message="분석 가능한 데이터가 부족하여 안정 상태로 처리했습니다.",
         )
-        normal["topPredictions"] = [normal]
-        normal["fusion_method"] = "no_data_normal_override"
-        normal["normalOverride"] = True
-        normal["normalOverrideReason"] = "insufficient_data"
-        return normal
+
+        return {
+            **normal,
+            "topPredictions": [prediction_copy(normal)],
+            "fusion_method": "no_data_normal_override",
+            "normalOverride": True,
+            "normalOverrideReason": "insufficient_data",
+        }
 
     best = sorted_candidates[0]
 
@@ -300,19 +315,25 @@ def fuse_results(
             confidence=1.0,
             message="분류 확률이 낮아 특정 상태로 단정하지 않고 안정 상태로 판단했습니다.",
         )
-        normal["topPredictions"] = [
-            normal,
-            {
-                **best,
-                "message": best.get("message") or "낮은 확률의 후보 상태입니다.",
-            },
-        ]
-        normal["fusion_method"] = "low_confidence_normal_override"
-        normal["normalOverride"] = True
-        normal["normalOverrideReason"] = "low_confidence"
-        return normal
 
-    top_predictions = sorted_candidates[:2]
+        return {
+            **normal,
+            "topPredictions": [
+                prediction_copy(normal),
+                prediction_copy({
+                    **best,
+                    "message": best.get("message") or "낮은 확률의 후보 상태입니다.",
+                }),
+            ],
+            "fusion_method": "low_confidence_normal_override",
+            "normalOverride": True,
+            "normalOverrideReason": "low_confidence",
+        }
+
+    top_predictions = [
+        prediction_copy(item)
+        for item in sorted_candidates[:2]
+    ]
 
     return {
         "emotion": best["emotion"],
@@ -326,7 +347,10 @@ def fuse_results(
     }
 
 
-def build_state_candidates(audio_result: dict | None, image_result: dict | None) -> list[dict]:
+def build_state_candidates(
+    audio_result: dict[str, Any] | None,
+    image_result: dict[str, Any] | None,
+) -> list[dict[str, Any]]:
     candidates = []
 
     audio_label = audio_result.get("label") if audio_result else None
@@ -336,8 +360,10 @@ def build_state_candidates(audio_result: dict | None, image_result: dict | None)
     image_confidence = float(image_result.get("confidence", 0.0)) if image_result else 0.0
 
     hungry_score = 0.0
+
     if audio_label == "hungry":
         hungry_score += audio_confidence * 0.75
+
     if image_label == "unhappy":
         hungry_score += image_confidence * 0.25
 
@@ -349,8 +375,10 @@ def build_state_candidates(audio_result: dict | None, image_result: dict | None)
     })
 
     tired_score = 0.0
+
     if audio_label == "tired":
         tired_score += audio_confidence * 0.75
+
     if image_label in {"normal", "unhappy"}:
         tired_score += image_confidence * 0.20
 
@@ -362,8 +390,10 @@ def build_state_candidates(audio_result: dict | None, image_result: dict | None)
     })
 
     discomfort_score = 0.0
+
     if audio_label == "discomfort":
         discomfort_score += audio_confidence * 0.75
+
     if image_label == "unhappy":
         discomfort_score += image_confidence * 0.25
 
@@ -375,8 +405,10 @@ def build_state_candidates(audio_result: dict | None, image_result: dict | None)
     })
 
     stable_score = 0.0
+
     if audio_label == "laugh":
         stable_score += audio_confidence * 0.50
+
     if image_label == "happy":
         stable_score += image_confidence * 0.85
     elif image_label == "normal":
@@ -388,7 +420,8 @@ def build_state_candidates(audio_result: dict | None, image_result: dict | None)
     ))
 
     return [
-        item for item in candidates
+        prediction_copy(item)
+        for item in candidates
         if item["confidence"] > 0
     ]
 
@@ -414,7 +447,7 @@ def build_normalized_audio_probabilities(raw_probabilities: dict[str, float]) ->
     }
 
 
-def is_quiet_audio(metadata: dict) -> bool:
+def is_quiet_audio(metadata: dict[str, Any]) -> bool:
     if parse_bool(metadata.get("quiet_audio")):
         return True
 
@@ -424,13 +457,16 @@ def is_quiet_audio(metadata: dict) -> bool:
     if rms_dbfs is None or peak_dbfs is None:
         return False
 
-    return rms_dbfs <= QUIET_RMS_DBFS_THRESHOLD and peak_dbfs <= QUIET_PEAK_DBFS_THRESHOLD
+    return (
+        rms_dbfs <= QUIET_RMS_DBFS_THRESHOLD
+        and peak_dbfs <= QUIET_PEAK_DBFS_THRESHOLD
+    )
 
 
 def normal_candidate(
     confidence: float = 1.0,
     message: str = "현재는 비교적 안정적인 상태로 추정됩니다.",
-) -> dict:
+) -> dict[str, Any]:
     return {
         "emotion": "안정 상태",
         "confidence": clamp_confidence(confidence),
@@ -440,12 +476,14 @@ def normal_candidate(
 
 
 def build_normal_result(
-    audio_result: dict | None,
-    image_result: dict | None,
+    audio_result: dict[str, Any] | None,
+    image_result: dict[str, Any] | None,
     fusion_method: str,
     message: str,
-    metadata: dict | None = None,
-) -> dict:
+    normal_override_reason: str,
+    metadata: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    metadata = metadata or {}
     normal = normal_candidate(confidence=1.0, message=message)
 
     return {
@@ -455,15 +493,24 @@ def build_normal_result(
         "confidence": normal["confidence"],
         "need": normal["need"],
         "message": normal["message"],
-        "topPredictions": [normal],
+        "topPredictions": [prediction_copy(normal)],
         "fusion_method": fusion_method,
         "normalOverride": True,
-        "normalOverrideReason": fusion_method,
+        "normalOverrideReason": normal_override_reason,
         "audioMetrics": {
-            "rmsDbfs": (metadata or {}).get("audio_rms_dbfs"),
-            "peakDbfs": (metadata or {}).get("audio_peak_dbfs"),
-            "quietAudio": (metadata or {}).get("quiet_audio"),
+            "rmsDbfs": metadata.get("audio_rms_dbfs"),
+            "peakDbfs": metadata.get("audio_peak_dbfs"),
+            "quietAudio": metadata.get("quiet_audio"),
         },
+    }
+
+
+def prediction_copy(candidate: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "emotion": candidate.get("emotion"),
+        "confidence": candidate.get("confidence"),
+        "need": candidate.get("need"),
+        "message": candidate.get("message"),
     }
 
 
