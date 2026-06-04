@@ -74,6 +74,9 @@ def process_job(job: dict):
             metadata=metadata,
         )
 
+        if is_quiet_audio_metadata(metadata):
+            inference_result = build_quiet_audio_normal_result(metadata)
+
         top_predictions = inference_result.get("topPredictions", [])
 
         with Session(engine) as session:
@@ -100,6 +103,9 @@ def process_job(job: dict):
                     "convertedAudio": converted_audio_path is not None,
                     "frameCount": metadata.get("frame_count", 0),
                     "selectedFrameIndex": metadata.get("selected_frame_index"),
+                    "audioRmsDbfs": metadata.get("audio_rms_dbfs"),
+                    "audioPeakDbfs": metadata.get("audio_peak_dbfs"),
+                    "quietAudio": metadata.get("quiet_audio"),
                 },
                 "debug": {
                     "lastFrameUrl": f"/api/inference/requests/{request_id}/last-frame",
@@ -116,6 +122,9 @@ def process_job(job: dict):
                     "createdAt": event.created_at.isoformat() if event.created_at else None,
                     "topPredictions": top_predictions,
                     "fusionMethod": inference_result.get("fusion_method"),
+                    "normalOverride": inference_result.get("normalOverride"),
+                    "normalOverrideReason": inference_result.get("normalOverrideReason"),
+                    "audioMetrics": inference_result.get("audioMetrics"),
                 },
             }
 
@@ -194,6 +203,66 @@ def parse_captured_at(value: str | None) -> datetime:
         return datetime.fromisoformat(value.replace("Z", "+00:00")).replace(tzinfo=None)
     except ValueError:
         return kst_now()
+
+
+def is_quiet_audio_metadata(metadata: dict) -> bool:
+    if parse_bool(metadata.get("quiet_audio")):
+        return True
+
+    rms_dbfs = parse_float(metadata.get("audio_rms_dbfs"))
+    peak_dbfs = parse_float(metadata.get("audio_peak_dbfs"))
+
+    if rms_dbfs is None or peak_dbfs is None:
+        return False
+
+    return not (rms_dbfs > -24.0 and peak_dbfs > -8.0)
+
+
+def build_quiet_audio_normal_result(metadata: dict) -> dict:
+    normal_prediction = {
+        "emotion": "안정 상태",
+        "confidence": 1.0,
+        "need": "stable",
+        "message": "소리 크기가 울음 수준이 아니어서 안정 상태로 판단했습니다.",
+    }
+
+    return {
+        "audio_result": None,
+        "vision_result": None,
+        "emotion": normal_prediction["emotion"],
+        "confidence": normal_prediction["confidence"],
+        "need": normal_prediction["need"],
+        "message": normal_prediction["message"],
+        "topPredictions": [normal_prediction],
+        "fusion_method": "quiet_audio_worker_override",
+        "normalOverride": True,
+        "normalOverrideReason": "quiet_audio",
+        "audioMetrics": {
+            "rmsDbfs": metadata.get("audio_rms_dbfs"),
+            "peakDbfs": metadata.get("audio_peak_dbfs"),
+            "quietAudio": metadata.get("quiet_audio"),
+        },
+    }
+
+
+def parse_float(value):
+    if value is None:
+        return None
+
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def parse_bool(value) -> bool:
+    if isinstance(value, bool):
+        return value
+
+    if value is None:
+        return False
+
+    return str(value).strip().lower() in {"1", "true", "yes", "y", "on"}
 
 
 if __name__ == "__main__":

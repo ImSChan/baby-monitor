@@ -50,6 +50,18 @@ async def analyze_multimodal_upload(
         Optional[float],
         Form(description="원본 영상 길이"),
     ] = None,
+    audio_rms_dbfs: Annotated[
+        Optional[float],
+        Form(description="프론트에서 계산한 오디오 RMS dBFS"),
+    ] = None,
+    audio_peak_dbfs: Annotated[
+        Optional[float],
+        Form(description="프론트에서 계산한 오디오 Peak dBFS"),
+    ] = None,
+    quiet_audio: Annotated[
+        Optional[bool],
+        Form(description="오디오가 조용한 상태인지 여부"),
+    ] = None,
     session: Session = Depends(get_session),
     current_user_id: int = Depends(get_current_user_id),
 ):
@@ -102,7 +114,7 @@ async def analyze_multimodal_upload(
 
         if saved_frame_paths:
             selected_frame_index = len(saved_frame_paths) // 2
-            selected_frame_path = saved_frame_paths[-1]
+            selected_frame_path = saved_frame_paths[selected_frame_index]
 
         metadata = {
             "request_id": request_id,
@@ -112,6 +124,9 @@ async def analyze_multimodal_upload(
             "captured_at": captured_at,
             "frame_rate": frame_rate,
             "duration_seconds": duration_seconds,
+            "audio_rms_dbfs": audio_rms_dbfs,
+            "audio_peak_dbfs": audio_peak_dbfs,
+            "quiet_audio": quiet_audio,
             "audio_filename": audio_file.filename if audio_file else None,
             "audio_content_type": audio_file.content_type if audio_file else None,
             "audio_path": audio_path,
@@ -124,7 +139,7 @@ async def analyze_multimodal_upload(
             "model_frame_paths": [selected_frame_path] if selected_frame_path else [],
             "received_at": kst_now().isoformat(),
             "preprocess_method": "frontend_audio_and_frames",
-            "model_input_policy": "last_frame_only",
+            "model_input_policy": "middle_frame_only",
         }
 
         write_metadata(request_id, metadata)
@@ -152,6 +167,9 @@ async def analyze_multimodal_upload(
                 "audio": audio_path is not None,
                 "frameCount": len(saved_frame_paths),
                 "selectedFrameIndex": selected_frame_index,
+                "audioRmsDbfs": audio_rms_dbfs,
+                "audioPeakDbfs": audio_peak_dbfs,
+                "quietAudio": quiet_audio,
             },
             "debug": {
                 "lastFrameUrl": f"/api/inference/requests/{request_id}/last-frame",
@@ -208,6 +226,9 @@ def get_inference_result(request_id: str):
                 "convertedAudio": metadata.get("converted_audio_path") is not None,
                 "frameCount": metadata.get("frame_count", 0),
                 "selectedFrameIndex": metadata.get("selected_frame_index"),
+                "audioRmsDbfs": metadata.get("audio_rms_dbfs"),
+                "audioPeakDbfs": metadata.get("audio_peak_dbfs"),
+                "quietAudio": metadata.get("quiet_audio"),
             },
             "debug": {
                 "lastFrameUrl": f"/api/inference/requests/{request_id}/last-frame",
@@ -226,15 +247,15 @@ def get_inference_result(request_id: str):
 @router.get("/requests/{request_id}/last-frame")
 def get_last_frame(request_id: str):
     metadata = read_request_metadata(request_id)
-    last_frame_path = metadata.get("selected_frame_path")
+    selected_frame_path = metadata.get("selected_frame_path")
 
-    if not last_frame_path or not Path(last_frame_path).exists():
+    if not selected_frame_path or not Path(selected_frame_path).exists():
         raise HTTPException(status_code=404, detail="Last frame not found")
 
     return FileResponse(
-        last_frame_path,
+        selected_frame_path,
         media_type="image/jpeg",
-        filename="last_frame.jpg",
+        filename="selected_frame.jpg",
     )
 
 
@@ -275,6 +296,7 @@ async def save_upload_file(upload_file: UploadFile, destination: Path) -> None:
 
             buffer.write(chunk)
 
+
 def validate_audio_file(upload_file: UploadFile) -> None:
     allowed_content_types = {
         "audio/wav",
@@ -289,8 +311,6 @@ def validate_audio_file(upload_file: UploadFile) -> None:
     }
 
     raw_content_type = upload_file.content_type or "application/octet-stream"
-
-    # 예: audio/webm;codecs=opus -> audio/webm
     normalized_content_type = raw_content_type.split(";")[0].strip().lower()
 
     if normalized_content_type not in allowed_content_types:
@@ -298,6 +318,7 @@ def validate_audio_file(upload_file: UploadFile) -> None:
             status_code=400,
             detail=f"지원하지 않는 음성 파일 형식입니다: {raw_content_type}",
         )
+
 
 def validate_image_file(upload_file: UploadFile) -> None:
     allowed_content_types = {
@@ -315,6 +336,7 @@ def validate_image_file(upload_file: UploadFile) -> None:
             status_code=400,
             detail=f"지원하지 않는 이미지 파일 형식입니다: {raw_content_type}",
         )
+
 
 def get_safe_extension(filename: str | None, default_ext: str) -> str:
     if not filename:
@@ -370,4 +392,3 @@ def write_metadata(request_id: str, metadata: dict) -> None:
         json.dumps(metadata, ensure_ascii=False, indent=2),
         encoding="utf-8",
     )
-

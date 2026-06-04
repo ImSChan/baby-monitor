@@ -137,7 +137,7 @@ function HomePage() {
           video.playsInline = true
 
           video.play().catch(() => {
-            setLiveStatus('영상 스트림은 수신했지만 자동 재생이 차단되었습니다. 화면을 한 번 터치해주세요.')
+            setLiveStatus('영상 스트림은 수신했지만 자동 재생이 차단되었습니다.')
           })
         }
 
@@ -159,7 +159,7 @@ function HomePage() {
         }
 
         if (peer.connectionState === 'failed') {
-          setLiveStatus('P2P 연결 실패. TURN 서버가 필요할 수 있습니다.')
+          setLiveStatus('P2P 연결 실패')
         }
 
         if (peer.connectionState === 'disconnected') {
@@ -387,12 +387,6 @@ function HomePage() {
               {refreshingDashboard && selectedSession && (
                 <div className='absolute right-4 top-4 rounded-full bg-black/50 px-3 py-1 text-[11px] text-slate-200'>
                   분석 결과 갱신 중
-                </div>
-              )}
-
-              {selectedSession && (
-                <div className='absolute bottom-4 left-4 right-4 rounded-2xl bg-black/55 p-3 text-xs text-slate-100'>
-                  {liveStatus}
                 </div>
               )}
             </div>
