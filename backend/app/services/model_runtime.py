@@ -1,4 +1,4 @@
-from pathlib import Path
+﻿from pathlib import Path
 from typing import Any
 
 import gdown
@@ -20,8 +20,8 @@ FACE_MODEL_GDRIVE_ID = "1rt1e8aVNJCALvF5CJZNqshyfIT2wqXf9"
 WAVLM_MODEL_GDRIVE_ID = "1uZ1TydQQClSBJRAXN-GHdyoaxPWyjZl_"
 
 NORMAL_CONFIDENCE_THRESHOLD = 0.60
-QUIET_RMS_DBFS_THRESHOLD = -42.0
-QUIET_PEAK_DBFS_THRESHOLD = -20.0
+QUIET_RMS_DBFS_THRESHOLD = -24.0
+QUIET_PEAK_DBFS_THRESHOLD = -8.0
 
 AUDIO_LABELS = [
     "belly pain",
@@ -448,8 +448,13 @@ def build_normalized_audio_probabilities(raw_probabilities: dict[str, float]) ->
 
 
 def is_quiet_audio(metadata: dict[str, Any]) -> bool:
-    if parse_bool(metadata.get("quiet_audio")):
-        return True
+    quiet_audio = metadata.get("quiet_audio")
+
+    # 프론트가 quiet_audio 값을 명시적으로 보냈으면 그 값을 최우선으로 따른다.
+    # true  -> 안정 상태
+    # false -> 조용함 재판정하지 않고 모델 결과 사용
+    if quiet_audio is not None:
+        return parse_bool(quiet_audio)
 
     rms_dbfs = parse_float(metadata.get("audio_rms_dbfs"))
     peak_dbfs = parse_float(metadata.get("audio_peak_dbfs"))

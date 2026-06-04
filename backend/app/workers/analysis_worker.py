@@ -206,9 +206,15 @@ def parse_captured_at(value: str | None) -> datetime:
 
 
 def is_quiet_audio_metadata(metadata: dict) -> bool:
-    if parse_bool(metadata.get("quiet_audio")):
-        return True
+    quiet_audio = metadata.get("quiet_audio")
 
+    # 프론트가 quiet_audio 값을 명시적으로 보냈으면 그 값을 최우선으로 따른다.
+    # true  -> 무조건 안정 상태
+    # false -> RMS/Peak 재판정하지 않고 모델 결과 사용
+    if quiet_audio is not None:
+        return parse_bool(quiet_audio)
+
+    # quiet_audio가 아예 없을 때만 RMS/Peak 기준 fallback 판단
     rms_dbfs = parse_float(metadata.get("audio_rms_dbfs"))
     peak_dbfs = parse_float(metadata.get("audio_peak_dbfs"))
 
