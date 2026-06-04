@@ -10,16 +10,16 @@ def convert_audio_to_wav(
     output_path.parent.mkdir(parents=True, exist_ok=True)
 
     command = [
-        'ffmpeg',
-        '-y',
-        '-i',
+        "ffmpeg",
+        "-y",
+        "-i",
         input_audio_path,
-        '-acodec',
-        'pcm_s16le',
-        '-ar',
-        '16000',
-        '-ac',
-        '1',
+        "-acodec",
+        "pcm_s16le",
+        "-ar",
+        "16000",
+        "-ac",
+        "1",
         str(output_path),
     ]
 

@@ -1,0 +1,61 @@
+﻿import { apiGet, apiPostFormData } from './client'
+
+export function requestMultimodalInference({
+  audioFile,
+  frameFiles,
+  cameraId,
+  capturedAt,
+  frameRate,
+  durationSeconds,
+  audioRmsDbfs,
+  audioPeakDbfs,
+  quietAudio,
+}) {
+  const formData = new FormData()
+
+  if (audioFile) {
+    formData.append('audio_file', audioFile)
+  }
+
+  ;(frameFiles || []).forEach((frameFile) => {
+    formData.append('frame_files', frameFile)
+  })
+
+  if (cameraId) {
+    formData.append('camera_id', String(cameraId))
+  }
+
+  if (capturedAt) {
+    formData.append('captured_at', capturedAt)
+  }
+
+  if (frameRate) {
+    formData.append('frame_rate', String(frameRate))
+  }
+
+  if (durationSeconds) {
+    formData.append('duration_seconds', String(durationSeconds))
+  }
+
+  if (typeof audioRmsDbfs === 'number' && Number.isFinite(audioRmsDbfs)) {
+    formData.append('audio_rms_dbfs', String(audioRmsDbfs))
+  }
+
+  if (typeof audioPeakDbfs === 'number' && Number.isFinite(audioPeakDbfs)) {
+    formData.append('audio_peak_dbfs', String(audioPeakDbfs))
+  }
+
+  if (typeof quietAudio === 'boolean') {
+    formData.append('quiet_audio', quietAudio ? 'true' : 'false')
+  }
+
+  return apiPostFormData('/api/inference/multimodal', formData)
+}
+
+export function getInferenceStatus(requestId) {
+  return apiGet('/api/inference/requests/' + requestId + '/status')
+}
+
+export function getInferenceResult(requestId) {
+  return apiGet('/api/inference/requests/' + requestId + '/result')
+}

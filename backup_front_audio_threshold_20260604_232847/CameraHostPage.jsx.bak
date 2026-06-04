@@ -1,4 +1,4 @@
-﻿import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Activity, Camera, Radio, Square, Video } from 'lucide-react'
 
 import Card from '../components/common/Card'
@@ -18,8 +18,6 @@ const peerConfig = {
 
 const ANALYSIS_INTERVAL_MS = 5000
 const AUDIO_SAMPLE_RATE = 16000
-const QUIET_RMS_DBFS_THRESHOLD = -42
-const QUIET_PEAK_DBFS_THRESHOLD = -20
 
 function CameraHostPage() {
   const videoRef = useRef(null)
@@ -36,10 +34,9 @@ function CameraHostPage() {
   const [isStreaming, setIsStreaming] = useState(false)
 
   const [analysisEnabled, setAnalysisEnabled] = useState(true)
-  const [analysisStatus, setAnalysisStatus] = useState('분석 대기 중')
+  const [analysisStatus, setAnalysisStatus] = useState('遺꾩꽍 ?湲?以?)
   const [latestAnalysis, setLatestAnalysis] = useState(null)
   const [analysisCount, setAnalysisCount] = useState(0)
-  const [latestAudioMetrics, setLatestAudioMetrics] = useState(null)
 
   useEffect(() => {
     return () => {
@@ -50,7 +47,7 @@ function CameraHostPage() {
   async function startHomeCam() {
     try {
       setError('')
-      setStatus('카메라 권한을 요청하는 중입니다...')
+      setStatus('移대찓??沅뚰븳???붿껌?섎뒗 以묒엯?덈떎...')
 
       const mediaStream = await navigator.mediaDevices.getUserMedia({
         video: {
@@ -67,10 +64,10 @@ function CameraHostPage() {
         videoRef.current.srcObject = mediaStream
       }
 
-      setStatus('라이브 세션을 생성하는 중입니다...')
+      setStatus('?쇱씠釉??몄뀡???앹꽦?섎뒗 以묒엯?덈떎...')
 
       const session = await createLiveSession({
-        camera_name: '휴대폰 홈캠',
+        camera_name: '?대????덉틺',
       })
 
       setSessionId(session.sessionId)
@@ -80,7 +77,7 @@ function CameraHostPage() {
       socketRef.current = socket
 
       socket.onopen = () => {
-        setStatus('홈캠이 시작되었습니다. 시청자 연결을 기다리는 중입니다.')
+        setStatus('?덉틺???쒖옉?섏뿀?듬땲?? ?쒖껌???곌껐??湲곕떎由щ뒗 以묒엯?덈떎.')
         setIsStreaming(true)
         stopRequestedRef.current = false
 
@@ -102,7 +99,7 @@ function CameraHostPage() {
             await peerRef.current.setRemoteDescription(
               new RTCSessionDescription(message.answer)
             )
-            setStatus('시청자와 연결되었습니다.')
+            setStatus('?쒖껌?먯? ?곌껐?섏뿀?듬땲??')
           }
           return
         }
@@ -113,29 +110,28 @@ function CameraHostPage() {
               new RTCIceCandidate(message.candidate)
             )
           }
-          return
         }
 
         if (message.type === 'viewer-disconnected') {
-          setStatus('시청자 연결이 종료되었습니다. 다시 연결을 기다리는 중입니다.')
+          setStatus('?쒖껌???곌껐??醫낅즺?섏뿀?듬땲?? ?ㅼ떆 ?곌껐??湲곕떎由щ뒗 以묒엯?덈떎.')
           closePeer()
         }
       }
 
       socket.onerror = () => {
-        setError('WebSocket 연결 중 오류가 발생했습니다.')
-        setStatus('라이브 세션 연결에 실패했습니다.')
+        setError('WebSocket ?곌껐 以??ㅻ쪟媛 諛쒖깮?덉뒿?덈떎.')
+        setStatus('?쇱씠釉??몄뀡 ?곌껐???ㅽ뙣?덉뒿?덈떎.')
       }
 
       socket.onclose = () => {
         stopRealtimeAnalysisLoop()
 
         if (isStreaming) {
-          setStatus('라이브 세션 연결이 종료되었습니다.')
+          setStatus('?쇱씠釉??몄뀡 ?곌껐??醫낅즺?섏뿀?듬땲??')
         }
       }
     } catch (err) {
-      setError(err.message || '홈캠 시작 중 오류가 발생했습니다.')
+      setError(err.message || '?덉틺 ?쒖옉 以??ㅻ쪟媛 諛쒖깮?덉뒿?덈떎.')
       setStatus('idle')
       stopStreaming()
     }
@@ -166,14 +162,14 @@ function CameraHostPage() {
 
     peer.onconnectionstatechange = () => {
       if (peer.connectionState === 'connected') {
-        setStatus('시청자와 P2P 라이브 연결이 완료되었습니다.')
+        setStatus('?쒖껌?먯? P2P ?쇱씠釉??곌껐???꾨즺?섏뿀?듬땲??')
       }
 
       if (
         peer.connectionState === 'failed' ||
         peer.connectionState === 'disconnected'
       ) {
-        setStatus('P2P 연결이 끊겼습니다. 시청자 재연결을 기다립니다.')
+        setStatus('P2P ?곌껐???딄꼈?듬땲?? ?쒖껌???ъ뿰寃곗쓣 湲곕떎由쎈땲??')
       }
     }
 
@@ -185,7 +181,7 @@ function CameraHostPage() {
       offer,
     }))
 
-    setStatus('시청자에게 라이브 연결 요청을 보냈습니다.')
+    setStatus('?쒖껌?먯뿉寃??쇱씠釉??곌껐 ?붿껌??蹂대깉?듬땲??')
   }
 
   function startRealtimeAnalysisLoop() {
@@ -194,7 +190,7 @@ function CameraHostPage() {
     }
 
     stopRequestedRef.current = false
-    setAnalysisStatus('5초 단위 실시간 분석을 시작했습니다.')
+    setAnalysisStatus('5珥??⑥쐞 ?ㅼ떆媛?遺꾩꽍???쒖옉?덉뒿?덈떎.')
 
     runAnalysisOnce()
 
@@ -212,7 +208,7 @@ function CameraHostPage() {
       analysisTimerRef.current = null
     }
 
-    setAnalysisStatus('분석이 중지되었습니다.')
+    setAnalysisStatus('遺꾩꽍??以묒??섏뿀?듬땲??')
   }
 
   async function runAnalysisOnce() {
@@ -230,28 +226,19 @@ function CameraHostPage() {
 
     try {
       analysisRunningRef.current = true
-      setAnalysisStatus('5초 오디오와 현재 프레임을 수집하는 중입니다...')
+      setAnalysisStatus('5珥??ㅻ뵒?ㅼ? ?꾩옱 ?꾨젅?꾩쓣 ?섏쭛?섎뒗 以묒엯?덈떎...')
 
-      const [audioPayload, frameFile] = await Promise.all([
+      const [audioFile, frameFile] = await Promise.all([
         recordAudioClipAsWav(streamRef.current, ANALYSIS_INTERVAL_MS),
         captureCurrentFrame(),
       ])
 
-      const audioFile = audioPayload?.audioFile || null
-      const audioMetrics = audioPayload?.metrics || null
-
-      setLatestAudioMetrics(audioMetrics)
-
       if (!audioFile && !frameFile) {
-        setAnalysisStatus('분석할 프레임 또는 오디오가 없습니다.')
+        setAnalysisStatus('遺꾩꽍???꾨젅???먮뒗 ?ㅻ뵒?ㅺ? ?놁뒿?덈떎.')
         return
       }
 
-      if (audioMetrics?.quietAudio) {
-        setAnalysisStatus('오디오가 조용한 상태입니다. 안정 상태 여부를 서버에 함께 전달합니다.')
-      } else {
-        setAnalysisStatus('분석 서버로 전송 중입니다...')
-      }
+      setAnalysisStatus('遺꾩꽍 ?쒕쾭濡??꾩넚 以묒엯?덈떎...')
 
       const queued = await requestMultimodalInference({
         audioFile,
@@ -259,24 +246,21 @@ function CameraHostPage() {
         capturedAt: new Date().toISOString(),
         frameRate: 1,
         durationSeconds: ANALYSIS_INTERVAL_MS / 1000,
-        audioRmsDbfs: audioMetrics?.rmsDbfs,
-        audioPeakDbfs: audioMetrics?.peakDbfs,
-        quietAudio: audioMetrics?.quietAudio,
       })
 
       if (!queued.requestId) {
-        throw new Error('분석 requestId가 없습니다.')
+        throw new Error('遺꾩꽍 requestId媛 ?놁뒿?덈떎.')
       }
 
-      setAnalysisStatus('AI 분석 작업 처리 중입니다...')
+      setAnalysisStatus('AI 遺꾩꽍 ?묒뾽 泥섎━ 以묒엯?덈떎...')
 
       const completed = await waitForInferenceCompleted(queued.requestId)
 
       setLatestAnalysis(completed.result)
       setAnalysisCount((prev) => prev + 1)
-      setAnalysisStatus('최근 분석 완료: ' + toUserFriendlyEmotion(completed.result?.emotion))
+      setAnalysisStatus('理쒓렐 遺꾩꽍 ?꾨즺: ' + toUserFriendlyEmotion(completed.result?.emotion))
     } catch (err) {
-      setAnalysisStatus(err.message || '실시간 분석 요청 중 오류가 발생했습니다.')
+      setAnalysisStatus(err.message || '?ㅼ떆媛?遺꾩꽍 ?붿껌 以??ㅻ쪟媛 諛쒖깮?덉뒿?덈떎.')
     } finally {
       analysisRunningRef.current = false
     }
@@ -320,6 +304,7 @@ function CameraHostPage() {
     }
 
     const originalSampleRate = audioContext.sampleRate
+
     await audioContext.close().catch(() => {})
 
     if (chunks.length === 0) {
@@ -331,16 +316,11 @@ function CameraHostPage() {
     const wavBuffer = encodeWav(resampled, AUDIO_SAMPLE_RATE)
     const wavBlob = new Blob([wavBuffer], { type: 'audio/wav' })
 
-    const audioFile = new File(
+    return new File(
       [wavBlob],
       'live_audio_' + Date.now() + '.wav',
       { type: 'audio/wav' }
     )
-
-    return {
-      audioFile,
-      metrics: calculateDbfsMetrics(resampled),
-    }
   }
 
   async function captureCurrentFrame() {
@@ -412,7 +392,7 @@ function CameraHostPage() {
 
   return (
     <main className='px-5 py-6'>
-      <Header title='휴대폰 홈캠' subtitle='이 기기를 임시 홈캠으로 사용합니다.' />
+      <Header title='?대????덉틺' subtitle='??湲곌린瑜??꾩떆 ?덉틺?쇰줈 ?ъ슜?⑸땲??' />
 
       <section className='mb-5 overflow-hidden rounded-[32px] border border-slate-700/70 bg-slate-900 shadow-card'>
         <div className='relative h-[520px] bg-black'>
@@ -429,9 +409,9 @@ function CameraHostPage() {
               <div className='mb-4 flex h-20 w-20 items-center justify-center rounded-full bg-blue-400/15 text-blue-200'>
                 <Camera size={38} />
               </div>
-              <p className='text-lg font-bold'>홈캠 대기 중</p>
+              <p className='text-lg font-bold'>?덉틺 ?湲?以?/p>
               <p className='mt-2 text-sm text-slate-400'>
-                시작 버튼을 누르면 카메라와 마이크 권한을 요청합니다.
+                ?쒖옉 踰꾪듉???꾨Ⅴ硫?移대찓?쇱? 留덉씠??沅뚰븳???붿껌?⑸땲??
               </p>
             </div>
           )}
@@ -446,7 +426,7 @@ function CameraHostPage() {
 
         <div className='p-5'>
           <p className='text-sm leading-6 text-slate-300'>
-            {status === 'idle' ? '홈캠 시작 버튼을 눌러 라이브 세션을 생성하세요.' : status}
+            {status === 'idle' ? '?덉틺 ?쒖옉 踰꾪듉???뚮윭 ?쇱씠釉??몄뀡???앹꽦?섏꽭??' : status}
           </p>
 
           {sessionId && (
@@ -464,9 +444,9 @@ function CameraHostPage() {
           <div className='mt-4 rounded-2xl bg-slate-950/50 p-4'>
             <label className='flex items-center justify-between gap-4'>
               <div>
-                <p className='text-sm font-semibold text-blue-200'>실시간 AI 분석</p>
+                <p className='text-sm font-semibold text-blue-200'>?ㅼ떆媛?AI 遺꾩꽍</p>
                 <p className='mt-1 text-xs leading-5 text-slate-400'>
-                  홈캠 실행 중 5초마다 프레임과 WAV 오디오를 분석합니다.
+                  ?덉틺 ?ㅽ뻾 以?5珥덈쭏???꾨젅?꾧낵 WAV ?ㅻ뵒?ㅻ? 遺꾩꽍?⑸땲??
                 </p>
               </div>
 
@@ -494,7 +474,7 @@ function CameraHostPage() {
             className='mt-4 flex w-full items-center justify-center gap-2 rounded-2xl bg-blue-500 py-3 text-sm font-bold text-white transition hover:bg-blue-400'
           >
             {isStreaming ? <Square size={18} /> : <Video size={18} />}
-            {isStreaming ? '홈캠 중지' : '홈캠 시작하기'}
+            {isStreaming ? '?덉틺 以묒?' : '?덉틺 ?쒖옉?섍린'}
           </button>
         </div>
       </section>
@@ -505,8 +485,8 @@ function CameraHostPage() {
             <Activity size={22} />
           </div>
           <div>
-            <p className='text-sm font-semibold text-blue-200'>실시간 분석 상태</p>
-            <p className='mt-1 text-xs text-slate-400'>총 분석 요청 {analysisCount}회</p>
+            <p className='text-sm font-semibold text-blue-200'>?ㅼ떆媛?遺꾩꽍 ?곹깭</p>
+            <p className='mt-1 text-xs text-slate-400'>珥?遺꾩꽍 ?붿껌 {analysisCount}??/p>
           </div>
         </div>
 
@@ -514,22 +494,14 @@ function CameraHostPage() {
           {analysisStatus}
         </p>
 
-        {latestAudioMetrics && (
-          <div className='mt-3 rounded-2xl bg-slate-950/40 p-3 text-xs leading-5 text-slate-400'>
-            <p>RMS: {latestAudioMetrics.rmsDbfs} dBFS</p>
-            <p>Peak: {latestAudioMetrics.peakDbfs} dBFS</p>
-            <p>Quiet: {latestAudioMetrics.quietAudio ? 'true' : 'false'}</p>
-          </div>
-        )}
-
         {latestAnalysis && (
           <div className='mt-4 rounded-2xl bg-emerald-400/10 p-4'>
-            <p className='text-xs font-semibold text-emerald-200'>최근 AI 분석 결과</p>
+            <p className='text-xs font-semibold text-emerald-200'>理쒓렐 AI 遺꾩꽍 寃곌낵</p>
             <p className='mt-2 text-xl font-bold text-white'>
               {toUserFriendlyEmotion(latestAnalysis.emotion)}
             </p>
             <p className='mt-1 text-sm text-slate-300'>
-              최종 확률 {Math.round((latestAnalysis.confidence || 0) * 100)}%
+              理쒖쥌 ?뺣쪧 {Math.round((latestAnalysis.confidence || 0) * 100)}%
             </p>
 
             {latestAnalysis.topPredictions?.length > 0 && (
@@ -555,10 +527,10 @@ function CameraHostPage() {
       </Card>
 
       <Card>
-        <p className='text-sm font-semibold text-blue-200'>시연 안내</p>
+        <p className='text-sm font-semibold text-blue-200'>?쒖뿰 ?덈궡</p>
         <p className='mt-2 text-sm leading-6 text-slate-400'>
-          이 화면은 공기계 휴대폰에서 열어두고, 노트북에서는 라이브 피드 탭에서 해당 세션을 선택하면 됩니다.
-          실시간 AI 분석은 이 휴대폰에서 5초 단위로 기존 분석 API에 요청합니다.
+          ???붾㈃? 怨듦린怨??대??곗뿉???댁뼱?먭퀬, ?명듃遺곸뿉?쒕뒗 ?쇱씠釉??쇰뱶 ??뿉???대떦 ?몄뀡???좏깮?섎㈃ ?⑸땲??
+          ?ㅼ떆媛?AI 遺꾩꽍? ???대??곗뿉??5珥??⑥쐞濡?湲곗〈 遺꾩꽍 API???붿껌?⑸땲??
         </p>
       </Card>
     </main>
@@ -577,13 +549,13 @@ async function waitForInferenceCompleted(requestId) {
     }
 
     if (status.status === 'failed') {
-      throw new Error(status.message || '분석 작업이 실패했습니다.')
+      throw new Error(status.message || '遺꾩꽍 ?묒뾽???ㅽ뙣?덉뒿?덈떎.')
     }
 
     await sleep(intervalMs)
   }
 
-  throw new Error('분석 작업 시간이 초과되었습니다.')
+  throw new Error('遺꾩꽍 ?묒뾽 ?쒓컙??珥덇낵?섏뿀?듬땲??')
 }
 
 function calculateDbfsMetrics(samples) {
@@ -614,7 +586,7 @@ function calculateDbfsMetrics(samples) {
   return {
     rmsDbfs,
     peakDbfs,
-    quietAudio: rmsDbfs <= QUIET_RMS_DBFS_THRESHOLD && peakDbfs <= QUIET_PEAK_DBFS_THRESHOLD,
+    quietAudio: rmsDbfs <= -38 && peakDbfs <= -25,
   }
 }
 
@@ -622,7 +594,6 @@ function linearToDbfs(value) {
   const safeValue = Math.max(Number(value) || 0, 0.000001)
   return Math.round(20 * Math.log10(safeValue) * 10) / 10
 }
-
 function mergeFloat32Arrays(chunks) {
   const totalLength = chunks.reduce((sum, chunk) => sum + chunk.length, 0)
   const result = new Float32Array(totalLength)
@@ -697,15 +668,15 @@ function writeString(view, offset, value) {
 }
 
 function toUserFriendlyEmotion(value) {
-  if (!value) return '분석 중'
+  if (!value) return '遺꾩꽍 以?
 
   const mapping = {
-    배고픔: '배고파요',
-    잠와요: '잠와요',
-    피곤함: '잠와요',
-    불편함: '불편해요',
-    '안정 상태': '괜찮아요',
-    안정상태: '괜찮아요',
+    諛곌퀬?? '諛곌퀬?뚯슂',
+    ?좎??? '?좎???,
+    ?쇨낀?? '?좎???,
+    遺덊렪?? '遺덊렪?댁슂',
+    '?덉젙 ?곹깭': '愿쒖갖?꾩슂',
+    ?덉젙?곹깭: '愿쒖갖?꾩슂',
   }
 
   return mapping[value] || value
