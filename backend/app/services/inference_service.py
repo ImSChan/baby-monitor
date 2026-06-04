@@ -11,4 +11,5 @@ def run_multimodal_inference(
     return predict_from_paths(
         audio_path=audio_path,
         frame_paths=frame_paths,
+        metadata=metadata,
     )

@@ -1,32 +1,21 @@
-﻿export async function preprocessVideoForInference(videoFile, options = {}) {
-  const framesPerSecond = options.framesPerSecond || 1
-  const maxFrames = options.maxFrames || 20
-  const maxWidth = options.maxWidth || 640
-  const onProgress = options.onProgress || (() => {})
-
-  onProgress('영상 메타데이터를 불러오는 중입니다...')
-
-  const frameResult = await extractFramesFromVideo(videoFile, {
-    framesPerSecond,
-    maxFrames,
-    maxWidth,
-    onProgress,
-  })
-
-  onProgress('오디오 추출을 시도하는 중입니다...')
-
-  const audioFile = await extractAudioBestEffort(videoFile)
-
-  return {
-    audioFile,
-    frameFiles: frameResult.frameFiles,
-    durationSeconds: frameResult.durationSeconds,
-    frameRate: framesPerSecond,
-  }
+﻿const DEFAULT_OPTIONS = {
+  framesPerSecond: 1,
+  maxFrames: 20,
+  maxWidth: 640,
+  audioDurationMs: 5000,
 }
 
-async function extractFramesFromVideo(videoFile, options) {
-  const { framesPerSecond, maxFrames, maxWidth, onProgress } = options
+export async function preprocessVideoForInference(videoFile, options = {}) {
+  const config = {
+    ...DEFAULT_OPTIONS,
+    ...options,
+  }
+
+  const onProgress = typeof config.onProgress === 'function'
+    ? config.onProgress
+    : () => {}
+
+  onProgress('영상 메타데이터를 확인하는 중입니다...')
 
   const videoUrl = URL.createObjectURL(videoFile)
   const video = document.createElement('video')
@@ -34,499 +23,370 @@ async function extractFramesFromVideo(videoFile, options) {
   video.src = videoUrl
   video.muted = true
   video.playsInline = true
-  video.preload = 'auto'
-  video.controls = false
-
-  video.style.position = 'fixed'
-  video.style.left = '-9999px'
-  video.style.top = '-9999px'
-  video.style.width = '1px'
-  video.style.height = '1px'
-  video.style.opacity = '0'
-
-  document.body.appendChild(video)
+  video.preload = 'metadata'
+  video.crossOrigin = 'anonymous'
 
   try {
-    video.load()
-
     await waitForEvent(video, 'loadedmetadata', 10000)
 
-    if (!Number.isFinite(video.duration) || video.duration <= 0) {
-      throw new Error('영상 길이를 확인할 수 없습니다. 다른 형식의 영상으로 시도해주세요.')
-    }
+    const durationSeconds = Number.isFinite(video.duration)
+      ? video.duration
+      : 0
 
-    await waitForEvent(video, 'loadeddata', 10000).catch(() => {
-      // 일부 모바일 브라우저에서는 loadeddata가 늦거나 안 올 수 있으므로 무시
+    onProgress('영상 프레임을 추출하는 중입니다...')
+
+    const frameFiles = await extractFramesFromVideo(video, {
+      durationSeconds,
+      framesPerSecond: config.framesPerSecond,
+      maxFrames: config.maxFrames,
+      maxWidth: config.maxWidth,
+      onProgress,
     })
 
-    const durationSeconds = video.duration
-    const originalWidth = video.videoWidth || 640
-    const originalHeight = video.videoHeight || 360
+    onProgress('오디오를 추출하는 중입니다...')
 
-    const scale = Math.min(1, maxWidth / originalWidth)
-    const canvasWidth = Math.max(1, Math.round(originalWidth * scale))
-    const canvasHeight = Math.max(1, Math.round(originalHeight * scale))
+    const audioFile = await extractAudioBestEffort(videoFile, {
+      durationMs: Math.min(config.audioDurationMs, Math.max(1000, durationSeconds * 1000 || config.audioDurationMs)),
+    })
 
-    const canvas = document.createElement('canvas')
-    const context = canvas.getContext('2d')
+    const audioMetrics = audioFile
+      ? await calculateAudioFileDbfsMetrics(audioFile)
+      : null
 
-    if (!context) {
-      throw new Error('Canvas context를 생성하지 못했습니다.')
-    }
-
-    canvas.width = canvasWidth
-    canvas.height = canvasHeight
-
-    const interval = 1 / framesPerSecond
-    const estimatedFrameCount = Math.ceil(durationSeconds / interval)
-    const targetFrameCount = Math.min(estimatedFrameCount, maxFrames)
-
-    const frameFiles = []
-
-    for (let index = 0; index < targetFrameCount; index += 1) {
-      const time = Math.min(index * interval, Math.max(durationSeconds - 0.1, 0))
-
+    if (audioMetrics) {
       onProgress(
-        '프레임 추출 중입니다... ' +
-          (index + 1) +
-          '/' +
-          targetFrameCount
+        '오디오 분석 지표 계산 완료: RMS ' +
+          audioMetrics.rmsDbfs +
+          ' dBFS, Peak ' +
+          audioMetrics.peakDbfs +
+          ' dBFS'
       )
-
-      await seekVideoSafely(video, time)
-
-      context.drawImage(video, 0, 0, canvasWidth, canvasHeight)
-
-      const blob = await canvasToBlob(canvas, 'image/jpeg', 0.8)
-      const frameFile = new File(
-        [blob],
-        'frame_' + String(index).padStart(5, '0') + '.jpg',
-        {
-          type: 'image/jpeg',
-        }
-      )
-
-      frameFiles.push(frameFile)
     }
 
     return {
+      audioFile,
+      audioMetrics,
       frameFiles,
       durationSeconds,
+      frameRate: config.framesPerSecond,
     }
   } finally {
     URL.revokeObjectURL(videoUrl)
-
-    if (video.parentNode) {
-      video.parentNode.removeChild(video)
-    }
   }
 }
 
-function waitForEvent(target, eventName, timeoutMs) {
-  return new Promise((resolve, reject) => {
-    let finished = false
+async function extractFramesFromVideo(video, {
+  durationSeconds,
+  framesPerSecond,
+  maxFrames,
+  maxWidth,
+  onProgress,
+}) {
+  const frameFiles = []
 
-    const timer = setTimeout(() => {
-      if (finished) return
-      finished = true
+  if (!durationSeconds || durationSeconds <= 0) {
+    await seekVideo(video, 0)
+    const frame = await captureFrame(video, maxWidth, 0)
+
+    return frame ? [frame] : []
+  }
+
+  const interval = 1 / Math.max(0.1, framesPerSecond)
+  const candidateTimes = []
+
+  for (let time = 0; time < durationSeconds; time += interval) {
+    candidateTimes.push(time)
+
+    if (candidateTimes.length >= maxFrames) {
+      break
+    }
+  }
+
+  if (candidateTimes.length === 0) {
+    candidateTimes.push(Math.max(0, durationSeconds / 2))
+  }
+
+  for (let index = 0; index < candidateTimes.length; index += 1) {
+    const time = Math.min(candidateTimes[index], Math.max(0, durationSeconds - 0.1))
+
+    onProgress('프레임 추출 중 ' + (index + 1) + '/' + candidateTimes.length)
+
+    await seekVideo(video, time)
+
+    const frameFile = await captureFrame(video, maxWidth, index)
+
+    if (frameFile) {
+      frameFiles.push(frameFile)
+    }
+  }
+
+  return frameFiles
+}
+
+async function captureFrame(video, maxWidth, index) {
+  if (!video.videoWidth || !video.videoHeight) {
+    return null
+  }
+
+  const scale = Math.min(1, maxWidth / video.videoWidth)
+  const width = Math.round(video.videoWidth * scale)
+  const height = Math.round(video.videoHeight * scale)
+
+  const canvas = document.createElement('canvas')
+  canvas.width = width
+  canvas.height = height
+
+  const context = canvas.getContext('2d')
+
+  if (!context) {
+    return null
+  }
+
+  context.drawImage(video, 0, 0, width, height)
+
+  const blob = await new Promise((resolve) => {
+    canvas.toBlob(resolve, 'image/jpeg', 0.85)
+  })
+
+  if (!blob) {
+    return null
+  }
+
+  return new File(
+    [blob],
+    'frame_' + String(index).padStart(3, '0') + '.jpg',
+    { type: 'image/jpeg' }
+  )
+}
+
+async function seekVideo(video, time) {
+  return new Promise((resolve, reject) => {
+    const timeout = window.setTimeout(() => {
       cleanup()
-      reject(new Error(eventName + ' 대기 시간이 초과되었습니다.'))
-    }, timeoutMs)
+      reject(new Error('영상 프레임 이동 시간이 초과되었습니다.'))
+    }, 8000)
 
     function cleanup() {
-      clearTimeout(timer)
-      target.removeEventListener(eventName, onSuccess)
-      target.removeEventListener('error', onError)
+      window.clearTimeout(timeout)
+      video.removeEventListener('seeked', handleSeeked)
+      video.removeEventListener('error', handleError)
     }
 
-    function onSuccess() {
-      if (finished) return
-      finished = true
+    function handleSeeked() {
       cleanup()
       resolve()
     }
 
-    function onError() {
-      if (finished) return
-      finished = true
+    function handleError() {
       cleanup()
-      reject(new Error('영상 로드 중 오류가 발생했습니다.'))
+      reject(new Error('영상 프레임 이동 중 오류가 발생했습니다.'))
     }
 
-    target.addEventListener(eventName, onSuccess, { once: true })
-    target.addEventListener('error', onError, { once: true })
+    video.addEventListener('seeked', handleSeeked, { once: true })
+    video.addEventListener('error', handleError, { once: true })
+
+    video.currentTime = Math.max(0, time)
   })
 }
 
-function seekVideoSafely(video, time) {
-  return new Promise((resolve) => {
-    let done = false
-
-    const timeout = setTimeout(() => {
-      if (done) return
-      done = true
-      cleanup()
-      resolve()
-    }, 3000)
-
-    function cleanup() {
-      clearTimeout(timeout)
-      video.removeEventListener('seeked', onSeeked)
-      video.removeEventListener('timeupdate', onTimeUpdate)
-    }
-
-    function finish() {
-      if (done) return
-      done = true
-      cleanup()
-      resolve()
-    }
-
-    function onSeeked() {
-      finish()
-    }
-
-    function onTimeUpdate() {
-      if (Math.abs(video.currentTime - time) < 0.35) {
-        finish()
-      }
-    }
-
-    video.addEventListener('seeked', onSeeked)
-    video.addEventListener('timeupdate', onTimeUpdate)
-
-    try {
-      video.currentTime = time
-    } catch {
-      finish()
-    }
-  })
-}
-
-function canvasToBlob(canvas, type, quality) {
-  return new Promise((resolve, reject) => {
-    canvas.toBlob(
-      (blob) => {
-        if (!blob) {
-          reject(new Error('프레임 이미지를 생성하지 못했습니다.'))
-          return
-        }
-
-        resolve(blob)
-      },
-      type,
-      quality
-    )
-  })
-}
-
-async function extractAudioBestEffort(videoFile) {
-  const recordedAudio = await extractAudioByMediaRecorder(videoFile)
-
-  if (recordedAudio) {
-    return recordedAudio
-  }
-
-  const decodedAudio = await extractAudioByDecodeAudioData(videoFile)
-
-  if (decodedAudio) {
-    return decodedAudio
-  }
-
-  return null
-}
-
-async function extractAudioByMediaRecorder(videoFile) {
-  const videoUrl = URL.createObjectURL(videoFile)
-  const video = document.createElement('video')
-
-  video.src = videoUrl
-  video.muted = false
-  video.playsInline = true
-  video.preload = 'auto'
-  video.controls = false
-
-  video.style.position = 'fixed'
-  video.style.left = '-9999px'
-  video.style.top = '-9999px'
-  video.style.width = '1px'
-  video.style.height = '1px'
-  video.style.opacity = '0'
-
-  document.body.appendChild(video)
+async function extractAudioBestEffort(videoFile, options = {}) {
+  const durationMs = options.durationMs || 5000
 
   try {
-    video.load()
-
-    await waitForEvent(video, 'loadedmetadata', 10000)
-
-    const captureStream =
-      video.captureStream ||
-      video.mozCaptureStream ||
-      video.webkitCaptureStream
-
-    if (!captureStream || typeof MediaRecorder === 'undefined') {
-      return null
-    }
-
-    await waitForEvent(video, 'loadeddata', 10000).catch(() => {})
-
-    let stream
-
-    try {
-      stream = captureStream.call(video)
-    } catch {
-      return null
-    }
-
-    const audioTracks = stream.getAudioTracks()
-
-    if (!audioTracks || audioTracks.length === 0) {
-      return null
-    }
-
-    const audioOnlyStream = new MediaStream(audioTracks)
-    const mimeType = getSupportedAudioMimeType()
-
-    if (!mimeType) {
-      return null
-    }
-
-    const chunks = []
-
-    let recorder
-
-    try {
-      recorder = new MediaRecorder(audioOnlyStream, {
-        mimeType,
-      })
-    } catch {
-      return null
-    }
-
-    recorder.ondataavailable = (event) => {
-      if (event.data && event.data.size > 0) {
-        chunks.push(event.data)
-      }
-    }
-
-    const stopped = new Promise((resolve) => {
-      recorder.onstop = resolve
-    })
-
-    recorder.start()
-
-    video.currentTime = 0
-
-    try {
-      await video.play()
-    } catch {
-      if (recorder.state !== 'inactive') {
-        recorder.stop()
-      }
-
-      stopTracks(audioOnlyStream)
-      return null
-    }
-
-    await waitForVideoEndedOrTimeout(video, 30000)
-
-    if (recorder.state !== 'inactive') {
-      recorder.stop()
-    }
-
-    await stopped
-
-    stopTracks(audioOnlyStream)
-
-    if (chunks.length === 0) {
-      return null
-    }
-
-    const extension = getAudioExtensionByMimeType(mimeType)
-    const blob = new Blob(chunks, { type: mimeType })
-
-    return new File([blob], 'audio' + extension, {
-      type: mimeType,
-    })
+    return await extractAudioByWebAudio(videoFile, durationMs)
   } catch {
     return null
-  } finally {
-    URL.revokeObjectURL(videoUrl)
-
-    if (video.parentNode) {
-      video.parentNode.removeChild(video)
-    }
   }
 }
 
-async function extractAudioByDecodeAudioData(videoFile) {
+async function extractAudioByWebAudio(videoFile, durationMs) {
+  const AudioContextClass = window.AudioContext || window.webkitAudioContext
+
+  if (!AudioContextClass) {
+    return null
+  }
+
   let audioContext = null
 
   try {
-    const AudioContextClass = window.AudioContext || window.webkitAudioContext
-
-    if (!AudioContextClass) {
-      return null
-    }
-
     audioContext = new AudioContextClass()
 
     const arrayBuffer = await videoFile.arrayBuffer()
     const audioBuffer = await audioContext.decodeAudioData(arrayBuffer.slice(0))
-    const wavBuffer = audioBufferToWav(audioBuffer)
+
+    if (!audioBuffer || audioBuffer.length === 0) {
+      return null
+    }
+
+    const sourceSampleRate = audioBuffer.sampleRate
+    const maxSamples = Math.min(
+      audioBuffer.length,
+      Math.floor(sourceSampleRate * (durationMs / 1000))
+    )
+
+    const source = audioBuffer.getChannelData(0).slice(0, maxSamples)
+    const resampled = resampleFloat32(source, sourceSampleRate, 16000)
+    const wavBuffer = encodeWav(resampled, 16000)
     const wavBlob = new Blob([wavBuffer], { type: 'audio/wav' })
 
-    return new File([wavBlob], 'audio.wav', {
-      type: 'audio/wav',
-    })
-  } catch {
-    return null
+    return new File(
+      [wavBlob],
+      'uploaded_audio_' + Date.now() + '.wav',
+      { type: 'audio/wav' }
+    )
   } finally {
-    if (audioContext && audioContext.close) {
+    if (audioContext) {
       await audioContext.close().catch(() => {})
     }
   }
 }
 
-function getSupportedAudioMimeType() {
-  if (typeof MediaRecorder === 'undefined') {
-    return ''
+async function calculateAudioFileDbfsMetrics(audioFile) {
+  const AudioContextClass = window.AudioContext || window.webkitAudioContext
+
+  if (!AudioContextClass) {
+    return null
   }
 
-  const candidates = [
-    'audio/webm;codecs=opus',
-    'audio/webm',
-    'audio/ogg;codecs=opus',
-    'audio/ogg',
-    'audio/mp4',
-  ]
+  let audioContext = null
 
-  for (const mimeType of candidates) {
-    if (MediaRecorder.isTypeSupported(mimeType)) {
-      return mimeType
+  try {
+    audioContext = new AudioContextClass()
+
+    const arrayBuffer = await audioFile.arrayBuffer()
+    const audioBuffer = await audioContext.decodeAudioData(arrayBuffer.slice(0))
+    const channelData = audioBuffer.getChannelData(0)
+
+    return calculateDbfsMetrics(channelData)
+  } catch {
+    return null
+  } finally {
+    if (audioContext) {
+      await audioContext.close().catch(() => {})
+    }
+  }
+}
+
+function calculateDbfsMetrics(samples) {
+  if (!samples || samples.length === 0) {
+    return {
+      rmsDbfs: -120,
+      peakDbfs: -120,
+      quietAudio: true,
     }
   }
 
-  return ''
-}
+  let sumSquares = 0
+  let peak = 0
 
-function getAudioExtensionByMimeType(mimeType) {
-  if (mimeType.includes('webm')) {
-    return '.webm'
+  for (let index = 0; index < samples.length; index += 1) {
+    const value = Math.abs(samples[index])
+    sumSquares += value * value
+
+    if (value > peak) {
+      peak = value
+    }
   }
 
-  if (mimeType.includes('ogg')) {
-    return '.ogg'
+  const rms = Math.sqrt(sumSquares / samples.length)
+  const rmsDbfs = linearToDbfs(rms)
+  const peakDbfs = linearToDbfs(peak)
+
+  return {
+    rmsDbfs,
+    peakDbfs,
+    quietAudio: rmsDbfs <= -38 && peakDbfs <= -25,
+  }
+}
+
+function linearToDbfs(value) {
+  const safeValue = Math.max(Number(value) || 0, 0.000001)
+  return Math.round(20 * Math.log10(safeValue) * 10) / 10
+}
+
+function resampleFloat32(input, inputSampleRate, outputSampleRate) {
+  if (inputSampleRate === outputSampleRate) {
+    return input
   }
 
-  if (mimeType.includes('mp4')) {
-    return '.m4a'
+  const ratio = inputSampleRate / outputSampleRate
+  const outputLength = Math.round(input.length / ratio)
+  const output = new Float32Array(outputLength)
+
+  for (let i = 0; i < outputLength; i += 1) {
+    const sourceIndex = i * ratio
+    const leftIndex = Math.floor(sourceIndex)
+    const rightIndex = Math.min(leftIndex + 1, input.length - 1)
+    const weight = sourceIndex - leftIndex
+
+    output[i] = input[leftIndex] * (1 - weight) + input[rightIndex] * weight
   }
 
-  return '.webm'
+  return output
 }
 
-function waitForVideoEndedOrTimeout(video, timeoutMs) {
-  return new Promise((resolve) => {
-    let finished = false
-
-    const timer = setTimeout(() => {
-      if (finished) return
-      finished = true
-      cleanup()
-      resolve()
-    }, timeoutMs)
-
-    function cleanup() {
-      clearTimeout(timer)
-      video.removeEventListener('ended', onEnded)
-      video.removeEventListener('error', onEnded)
-    }
-
-    function onEnded() {
-      if (finished) return
-      finished = true
-      cleanup()
-      resolve()
-    }
-
-    video.addEventListener('ended', onEnded, { once: true })
-    video.addEventListener('error', onEnded, { once: true })
-  })
-}
-
-function stopTracks(stream) {
-  stream.getTracks().forEach((track) => {
-    try {
-      track.stop()
-    } catch {
-      // ignore
-    }
-  })
-}
-
-function audioBufferToWav(audioBuffer) {
-  const numberOfChannels = audioBuffer.numberOfChannels
-  const sampleRate = audioBuffer.sampleRate
-  const format = 1
-  const bitDepth = 16
-  const bytesPerSample = bitDepth / 8
-  const blockAlign = numberOfChannels * bytesPerSample
-
-  const samples = interleaveChannels(audioBuffer)
-  const dataSize = samples.length * bytesPerSample
-  const buffer = new ArrayBuffer(44 + dataSize)
+function encodeWav(samples, sampleRate) {
+  const buffer = new ArrayBuffer(44 + samples.length * 2)
   const view = new DataView(buffer)
 
   writeString(view, 0, 'RIFF')
-  view.setUint32(4, 36 + dataSize, true)
+  view.setUint32(4, 36 + samples.length * 2, true)
   writeString(view, 8, 'WAVE')
   writeString(view, 12, 'fmt ')
   view.setUint32(16, 16, true)
-  view.setUint16(20, format, true)
-  view.setUint16(22, numberOfChannels, true)
+  view.setUint16(20, 1, true)
+  view.setUint16(22, 1, true)
   view.setUint32(24, sampleRate, true)
-  view.setUint32(28, sampleRate * blockAlign, true)
-  view.setUint16(32, blockAlign, true)
-  view.setUint16(34, bitDepth, true)
+  view.setUint32(28, sampleRate * 2, true)
+  view.setUint16(32, 2, true)
+  view.setUint16(34, 16, true)
   writeString(view, 36, 'data')
-  view.setUint32(40, dataSize, true)
+  view.setUint32(40, samples.length * 2, true)
 
   floatTo16BitPCM(view, 44, samples)
 
   return buffer
 }
 
-function interleaveChannels(audioBuffer) {
-  const numberOfChannels = audioBuffer.numberOfChannels
-  const length = audioBuffer.length
-  const result = new Float32Array(length * numberOfChannels)
-
-  let offset = 0
-
-  for (let i = 0; i < length; i += 1) {
-    for (let channel = 0; channel < numberOfChannels; channel += 1) {
-      result[offset] = audioBuffer.getChannelData(channel)[i]
-      offset += 1
-    }
-  }
-
-  return result
-}
-
 function floatTo16BitPCM(view, offset, input) {
   for (let i = 0; i < input.length; i += 1) {
     const sample = Math.max(-1, Math.min(1, input[i]))
     const value = sample < 0 ? sample * 0x8000 : sample * 0x7fff
-
     view.setInt16(offset, value, true)
     offset += 2
   }
 }
 
-function writeString(view, offset, string) {
-  for (let i = 0; i < string.length; i += 1) {
-    view.setUint8(offset + i, string.charCodeAt(i))
+function writeString(view, offset, value) {
+  for (let i = 0; i < value.length; i += 1) {
+    view.setUint8(offset + i, value.charCodeAt(i))
   }
+}
+
+function waitForEvent(target, eventName, timeoutMs) {
+  return new Promise((resolve, reject) => {
+    const timeout = window.setTimeout(() => {
+      cleanup()
+      reject(new Error(eventName + ' 대기 시간이 초과되었습니다.'))
+    }, timeoutMs)
+
+    function cleanup() {
+      window.clearTimeout(timeout)
+      target.removeEventListener(eventName, handleEvent)
+      target.removeEventListener('error', handleError)
+    }
+
+    function handleEvent() {
+      cleanup()
+      resolve()
+    }
+
+    function handleError() {
+      cleanup()
+      reject(new Error(eventName + ' 처리 중 오류가 발생했습니다.'))
+    }
+
+    target.addEventListener(eventName, handleEvent, { once: true })
+    target.addEventListener('error', handleError, { once: true })
+  })
 }

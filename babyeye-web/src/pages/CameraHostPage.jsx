@@ -18,6 +18,8 @@ const peerConfig = {
 
 const ANALYSIS_INTERVAL_MS = 5000
 const AUDIO_SAMPLE_RATE = 16000
+const QUIET_RMS_DBFS_THRESHOLD = -38
+const QUIET_PEAK_DBFS_THRESHOLD = -25
 
 function CameraHostPage() {
   const videoRef = useRef(null)
@@ -37,6 +39,7 @@ function CameraHostPage() {
   const [analysisStatus, setAnalysisStatus] = useState('분석 대기 중')
   const [latestAnalysis, setLatestAnalysis] = useState(null)
   const [analysisCount, setAnalysisCount] = useState(0)
+  const [latestAudioMetrics, setLatestAudioMetrics] = useState(null)
 
   useEffect(() => {
     return () => {
@@ -110,6 +113,7 @@ function CameraHostPage() {
               new RTCIceCandidate(message.candidate)
             )
           }
+          return
         }
 
         if (message.type === 'viewer-disconnected') {
@@ -228,17 +232,26 @@ function CameraHostPage() {
       analysisRunningRef.current = true
       setAnalysisStatus('5초 오디오와 현재 프레임을 수집하는 중입니다...')
 
-      const [audioFile, frameFile] = await Promise.all([
+      const [audioPayload, frameFile] = await Promise.all([
         recordAudioClipAsWav(streamRef.current, ANALYSIS_INTERVAL_MS),
         captureCurrentFrame(),
       ])
+
+      const audioFile = audioPayload?.audioFile || null
+      const audioMetrics = audioPayload?.metrics || null
+
+      setLatestAudioMetrics(audioMetrics)
 
       if (!audioFile && !frameFile) {
         setAnalysisStatus('분석할 프레임 또는 오디오가 없습니다.')
         return
       }
 
-      setAnalysisStatus('분석 서버로 전송 중입니다...')
+      if (audioMetrics?.quietAudio) {
+        setAnalysisStatus('오디오가 조용한 상태입니다. 안정 상태 여부를 서버에 함께 전달합니다.')
+      } else {
+        setAnalysisStatus('분석 서버로 전송 중입니다...')
+      }
 
       const queued = await requestMultimodalInference({
         audioFile,
@@ -246,6 +259,9 @@ function CameraHostPage() {
         capturedAt: new Date().toISOString(),
         frameRate: 1,
         durationSeconds: ANALYSIS_INTERVAL_MS / 1000,
+        audioRmsDbfs: audioMetrics?.rmsDbfs,
+        audioPeakDbfs: audioMetrics?.peakDbfs,
+        quietAudio: audioMetrics?.quietAudio,
       })
 
       if (!queued.requestId) {
@@ -304,7 +320,6 @@ function CameraHostPage() {
     }
 
     const originalSampleRate = audioContext.sampleRate
-
     await audioContext.close().catch(() => {})
 
     if (chunks.length === 0) {
@@ -316,11 +331,16 @@ function CameraHostPage() {
     const wavBuffer = encodeWav(resampled, AUDIO_SAMPLE_RATE)
     const wavBlob = new Blob([wavBuffer], { type: 'audio/wav' })
 
-    return new File(
+    const audioFile = new File(
       [wavBlob],
       'live_audio_' + Date.now() + '.wav',
       { type: 'audio/wav' }
     )
+
+    return {
+      audioFile,
+      metrics: calculateDbfsMetrics(resampled),
+    }
   }
 
   async function captureCurrentFrame() {
@@ -494,6 +514,14 @@ function CameraHostPage() {
           {analysisStatus}
         </p>
 
+        {latestAudioMetrics && (
+          <div className='mt-3 rounded-2xl bg-slate-950/40 p-3 text-xs leading-5 text-slate-400'>
+            <p>RMS: {latestAudioMetrics.rmsDbfs} dBFS</p>
+            <p>Peak: {latestAudioMetrics.peakDbfs} dBFS</p>
+            <p>Quiet: {latestAudioMetrics.quietAudio ? 'true' : 'false'}</p>
+          </div>
+        )}
+
         {latestAnalysis && (
           <div className='mt-4 rounded-2xl bg-emerald-400/10 p-4'>
             <p className='text-xs font-semibold text-emerald-200'>최근 AI 분석 결과</p>
@@ -556,6 +584,43 @@ async function waitForInferenceCompleted(requestId) {
   }
 
   throw new Error('분석 작업 시간이 초과되었습니다.')
+}
+
+function calculateDbfsMetrics(samples) {
+  if (!samples || samples.length === 0) {
+    return {
+      rmsDbfs: -120,
+      peakDbfs: -120,
+      quietAudio: true,
+    }
+  }
+
+  let sumSquares = 0
+  let peak = 0
+
+  for (let index = 0; index < samples.length; index += 1) {
+    const value = Math.abs(samples[index])
+    sumSquares += value * value
+
+    if (value > peak) {
+      peak = value
+    }
+  }
+
+  const rms = Math.sqrt(sumSquares / samples.length)
+  const rmsDbfs = linearToDbfs(rms)
+  const peakDbfs = linearToDbfs(peak)
+
+  return {
+    rmsDbfs,
+    peakDbfs,
+    quietAudio: rmsDbfs <= QUIET_RMS_DBFS_THRESHOLD && peakDbfs <= QUIET_PEAK_DBFS_THRESHOLD,
+  }
+}
+
+function linearToDbfs(value) {
+  const safeValue = Math.max(Number(value) || 0, 0.000001)
+  return Math.round(20 * Math.log10(safeValue) * 10) / 10
 }
 
 function mergeFloat32Arrays(chunks) {

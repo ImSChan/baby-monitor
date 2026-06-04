@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+﻿import { useEffect, useRef, useState } from 'react'
 import {
   AlertCircle,
   Baby,
@@ -293,6 +293,9 @@ function HomePage() {
         capturedAt: new Date().toISOString(),
         frameRate: preprocessed.frameRate,
         durationSeconds: preprocessed.durationSeconds,
+        audioRmsDbfs: preprocessed.audioMetrics?.rmsDbfs,
+        audioPeakDbfs: preprocessed.audioMetrics?.peakDbfs,
+        quietAudio: preprocessed.audioMetrics?.quietAudio,
       })
 
       const requestId = queued.requestId

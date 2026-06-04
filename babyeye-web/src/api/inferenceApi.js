@@ -2,11 +2,14 @@
 
 export function requestMultimodalInference({
   audioFile,
-  frameFiles,
+  frameFiles = [],
   cameraId,
   capturedAt,
   frameRate,
   durationSeconds,
+  audioRmsDbfs,
+  audioPeakDbfs,
+  quietAudio,
 }) {
   const formData = new FormData()
 
@@ -34,6 +37,18 @@ export function requestMultimodalInference({
     formData.append('duration_seconds', String(durationSeconds))
   }
 
+  if (typeof audioRmsDbfs === 'number' && Number.isFinite(audioRmsDbfs)) {
+    formData.append('audio_rms_dbfs', String(audioRmsDbfs))
+  }
+
+  if (typeof audioPeakDbfs === 'number' && Number.isFinite(audioPeakDbfs)) {
+    formData.append('audio_peak_dbfs', String(audioPeakDbfs))
+  }
+
+  if (typeof quietAudio === 'boolean') {
+    formData.append('quiet_audio', quietAudio ? 'true' : 'false')
+  }
+
   return apiPostFormData('/api/inference/multimodal', formData)
 }
 
@@ -43,4 +58,8 @@ export function getInferenceStatus(requestId) {
 
 export function getInferenceResult(requestId) {
   return apiGet('/api/inference/requests/' + requestId + '/result')
+}
+
+export function getInferenceMetadata(requestId) {
+  return apiGet('/api/inference/requests/' + requestId + '/metadata')
 }
