@@ -30,6 +30,13 @@ const FEEDBACK_OPTIONS = [
   },
 ]
 
+const EMOTION_LABELS = [
+  { value: 'feeding', label: '🍼 배고픔' },
+  { value: 'sleep', label: '🌙 졸림' },
+  { value: 'care', label: '🌡️ 불편함' },
+  { value: 'stable', label: '😊 안정' },
+]
+
 function formatDate(value) {
   if (!value) return '분석 시각 없음'
 
@@ -242,30 +249,43 @@ function FeedbackCard({ item, feedback, onSaved }) {
             ))}
           </div>
 
-          {type === 'incorrect' && (
-            <div>
-              <label
-                htmlFor={`label-${item.requestId}`}
-                className="mb-2 block text-sm text-slate-300"
-              >
-                실제 상태
-              </label>
+          
+        {type === 'incorrect' && (
+        <div>
+            <label
+            htmlFor={`label-${item.requestId}`}
+            className="mb-2 block text-sm text-slate-300"
+            >
+            실제 아기의 상태
+            </label>
 
-              <input
-                id={`label-${item.requestId}`}
-                type="text"
-                value={label}
-                onChange={(event) => setLabel(event.target.value)}
-                maxLength={100}
-                placeholder="예: 배고픔, 졸림, 불편함"
-                className="w-full rounded-xl border border-slate-700 bg-slate-800 px-4 py-3 text-sm text-white outline-none focus:border-blue-400"
-              />
+            <select
+            id={`label-${item.requestId}`}
+            value={label}
+            onChange={(event) => setLabel(event.target.value)}
+            required
+            className="w-full rounded-xl border border-slate-700 bg-slate-800 px-4 py-3 text-sm text-white outline-none focus:border-blue-400"
+            >
+            <option value="" disabled>
+                실제 상태를 선택해주세요
+            </option>
 
-              <p className="mt-2 text-xs text-slate-400">
-                추후 모델 학습용 라벨 체계에 맞춰 선택식으로 변경할 예정입니다.
-              </p>
-            </div>
-          )}
+            {EMOTION_LABELS.map((emotion) => (
+                <option
+                key={emotion.value}
+                value={emotion.value}
+                >
+                {emotion.label}
+                </option>
+            ))}
+            </select>
+
+            <p className="mt-2 text-xs text-slate-400">
+            실제 관찰한 아기의 상태를 선택해주세요.
+            </p>
+        </div>
+        )}
+
 
           <div>
             <label
