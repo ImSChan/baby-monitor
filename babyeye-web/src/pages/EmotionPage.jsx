@@ -4,6 +4,7 @@ import Card from '../components/common/Card'
 import Header from '../components/common/Header'
 import { getCurrentEmotion, getEmotionHistory } from '../api/emotionApi'
 import { useApi } from '../hooks/api/useApi'
+import { Link } from 'react-router-dom'
 
 function EmotionPage() {
   const current = useApi(getCurrentEmotion, [])
@@ -42,6 +43,12 @@ function EmotionPage() {
   return (
     <main className='px-5 py-6'>
       <Header title='감정 분석' subtitle='AI 기반 영아 상태 분석' />
+      <Link
+        to="/feedback"
+        className="mb-5 mt-4 flex items-center justify-center rounded-2xl bg-blue-600 px-4 py-4 text-sm font-semibold text-white"
+      >
+        최근 AI 분석 피드백 작성하기
+      </Link>
 
       <CurrentEmotionTopTwo currentEmotion={currentEmotion} />
 

@@ -15,6 +15,7 @@ import LivePage from '../pages/LivePage'
 import SettingsPage from '../pages/SettingsPage'
 import SmartHomePage from '../pages/SmartHomePage'
 import LoginPage from '../pages/LoginPage'
+import FeedbackPage from '../pages/FeedbackPage'
 
 function ProtectedRoute() {
   const { user, loading } = useAuth()
@@ -46,6 +47,7 @@ function AppRouter() {
         <Route path="/emotion" element={<EmotionPage />} />
         <Route path="/smart-home" element={<SmartHomePage />} />
         <Route path="/settings" element={<SettingsPage />} />
+        <Route path="/feedback" element={<FeedbackPage />} />
       </Route>
 
       <Route path="*" element={<Navigate to="/" replace />} />
