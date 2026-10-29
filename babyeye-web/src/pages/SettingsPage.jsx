@@ -1,7 +1,9 @@
 ﻿import { User, Camera, Bell, Shield, ChevronRight } from 'lucide-react'
-
+import { useAuth } from '../contexts/AuthContext'
 import Card from '../components/common/Card'
 import Header from '../components/common/Header'
+
+const { user, logout } = useAuth()
 
 const sections = [
   {
@@ -71,6 +73,19 @@ function SettingsPage() {
             </div>
           </Card>
         ))}
+      </div>
+      <div className="mt-6 rounded-xl border border-slate-700 p-4">
+        <p className="mb-3 text-sm text-slate-300">
+          로그인 계정: {user?.email}
+        </p>
+
+        <button
+          type="button"
+          onClick={logout}
+          className="w-full rounded-xl bg-red-600/20 py-3 text-sm font-semibold text-red-300"
+        >
+          로그아웃
+        </button>
       </div>
     </main>
   )
