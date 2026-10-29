@@ -8,7 +8,10 @@ import torch.nn as nn
 from PIL import Image
 from torchvision import models, transforms
 from transformers import Wav2Vec2FeatureExtractor, WavLMForSequenceClassification
+import torch.nn.functional as F
 
+#TODO
+USER_WEIGHTS_DIR = Path(".pt 파일 경로 추가 부탁드립니다.")
 
 WEIGHTS_DIR = Path("/app/weights")
 WEIGHTS_DIR.mkdir(parents=True, exist_ok=True)
@@ -123,11 +126,35 @@ def load_models() -> None:
     efficientnet_model.eval()
     _efficientnet_model = efficientnet_model
 
+# .pt 파일 불러오기
+def get_user_head_weights(user_id: str, model_type: str) -> dict[str, torch.Tensor] | None:
+    pt_path = USER_WEIGHTS_DIR / f"{user_id}_{model_type}_head.pt"
+    
+    if pt_path.exists():
+        return torch.load(str(pt_path), map_location=device)
+    return None
+
+def compute_personalized_logits(
+    features: torch.Tensor, 
+    default_linear: nn.Linear, 
+    user_id: str | None, 
+    model_type: str
+) -> torch.Tensor:
+    if user_id:
+        user_weights = get_user_head_weights(user_id, model_type)
+        if user_weights:
+            weight = user_weights["weight"]
+            bias = user_weights.get("bias", None)
+            return F.linear(features, weight, bias)
+    
+    return default_linear(features)
 
 def predict_from_paths(
     audio_path: str | None,
     frame_paths: list[str],
     metadata: dict[str, Any] | None = None,
+    # 유저 식별자 추가
+    user_id: str | None = None,
 ) -> dict[str, Any]:
     metadata = metadata or {}
 
@@ -143,8 +170,8 @@ def predict_from_paths(
 
     load_models()
 
-    audio_result = predict_audio(audio_path) if audio_path else None
-    image_result = predict_images(frame_paths) if frame_paths else None
+    audio_result = predict_audio(audio_path, user_id) if audio_path else None
+    image_result = predict_images(frame_paths, user_id) if frame_paths else None
 
     final_result = fuse_results(
         audio_result=audio_result,
@@ -171,7 +198,7 @@ def predict_from_paths(
     }
 
 
-def predict_audio(audio_path: str) -> dict[str, Any]:
+def predict_audio(audio_path: str, user_id: str | None = None) -> dict[str, Any]:
     waveform, _ = librosa.load(audio_path, sr=16000, mono=True)
 
     inputs = _feature_extractor(
@@ -184,8 +211,17 @@ def predict_audio(audio_path: str) -> dict[str, Any]:
     input_values = inputs.input_values.to(device)
 
     with torch.no_grad():
-        outputs = _wavlm_model(input_values)
-        logits = outputs.logits
+        outputs = _wavlm_model.wavlm(input_values)
+        hidden_states = outputs[0]
+        
+        if hasattr(_wavlm_model, 'projector'):
+            hidden_states = _wavlm_model.projector(hidden_states)
+            
+        pooled_output = hidden_states[:, 0, :] if hidden_states.dim() == 3 else hidden_states
+        
+        default_head = _wavlm_model.classifier
+        logits = compute_personalized_logits(pooled_output, default_head, user_id, "audio")
+        
         probabilities = torch.softmax(logits, dim=-1)
         pred_id = torch.argmax(probabilities, dim=-1).item()
         raw_label = AUDIO_LABELS[pred_id]
@@ -209,7 +245,7 @@ def predict_audio(audio_path: str) -> dict[str, Any]:
     }
 
 
-def predict_images(frame_paths: list[str]) -> dict[str, Any] | None:
+def predict_images(frame_paths: list[str], user_id: str | None = None) -> dict[str, Any] | None:
     transform = transforms.Compose([
         transforms.Resize((224, 224)),
         transforms.ToTensor(),
@@ -226,7 +262,14 @@ def predict_images(frame_paths: list[str]) -> dict[str, Any] | None:
         tensor = transform(image).unsqueeze(0).to(device)
 
         with torch.no_grad():
-            logits = _efficientnet_model(tensor)
+            features = _efficientnet_model.features(tensor)
+            features = _efficientnet_model.avgpool(features)
+            features = torch.flatten(features, 1)
+            features = _efficientnet_model.classifier[0](features) 
+            
+            default_head = _efficientnet_model.classifier[1]
+            logits = compute_personalized_logits(features, default_head, user_id, "vision")
+            
             probabilities = torch.softmax(logits, dim=-1)
             pred_id = torch.argmax(probabilities, dim=-1).item()
             confidence = probabilities[0][pred_id].item()
