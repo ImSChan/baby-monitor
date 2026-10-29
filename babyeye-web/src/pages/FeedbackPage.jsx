@@ -31,10 +31,10 @@ const FEEDBACK_OPTIONS = [
 ]
 
 const EMOTION_LABELS = [
-  { value: 'feeding', label: '🍼 배고픔' },
-  { value: 'sleep', label: '🌙 졸림' },
-  { value: 'care', label: '🌡️ 불편함' },
-  { value: 'stable', label: '😊 안정' },
+  { value: 'feeding', label: '배고픔' },
+  { value: 'sleep', label: '졸림' },
+  { value: 'care', label: '불편함' },
+  { value: 'stable', label: '안정' },
 ]
 
 function formatDate(value) {
@@ -250,41 +250,46 @@ function FeedbackCard({ item, feedback, onSaved }) {
           </div>
 
           
+
         {type === 'incorrect' && (
         <div>
-            <label
-            htmlFor={`label-${item.requestId}`}
-            className="mb-2 block text-sm text-slate-300"
-            >
-            실제 아기의 상태
-            </label>
-
-            <select
-            id={`label-${item.requestId}`}
-            value={label}
-            onChange={(event) => setLabel(event.target.value)}
-            required
-            className="w-full rounded-xl border border-slate-700 bg-slate-800 px-4 py-3 text-sm text-white outline-none focus:border-blue-400"
-            >
-            <option value="" disabled>
-                실제 상태를 선택해주세요
-            </option>
-
-            {EMOTION_LABELS.map((emotion) => (
-                <option
-                key={emotion.value}
-                value={emotion.value}
-                >
-                {emotion.label}
-                </option>
-            ))}
-            </select>
-
-            <p className="mt-2 text-xs text-slate-400">
-            실제 관찰한 아기의 상태를 선택해주세요.
+            <p className="mb-3 text-sm font-medium text-slate-300">
+            실제 아기의 상태를 선택해주세요.
             </p>
+
+            <div className="grid grid-cols-2 gap-3">
+            {EMOTION_LABELS.map((emotion) => {
+                const selected = label === emotion.value
+
+                return (
+                <label
+                    key={emotion.value}
+                    className={`flex cursor-pointer items-center gap-3 rounded-xl border p-4 transition-colors ${
+                    selected
+                        ? 'border-blue-500 bg-blue-500/15 text-blue-300'
+                        : 'border-slate-700 bg-slate-800 text-slate-300'
+                    }`}
+                >
+                    <input
+                    type="radio"
+                    name={`emotion-${item.requestId}`}
+                    value={emotion.value}
+                    checked={selected}
+                    onChange={() => setLabel(emotion.value)}
+                    className="h-4 w-4 accent-blue-500"
+                    required
+                    />
+
+                    <span className="text-sm font-medium">
+                    {emotion.label}
+                    </span>
+                </label>
+                )
+            })}
+            </div>
         </div>
         )}
+
 
 
           <div>
