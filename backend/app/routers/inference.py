@@ -6,7 +6,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Annotated, Optional
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, Query
 from fastapi.responses import FileResponse, JSONResponse
 from sqlmodel import Session, select
 
@@ -126,6 +126,97 @@ def get_safe_request_file(
 
     return target
 
+
+# ============================================================
+# User inference history
+# ============================================================
+
+@router.get("/history")
+def get_inference_history(
+    limit: int = Query(default=20, ge=1, le=100),
+    offset: int = Query(default=0, ge=0),
+    current_user_id: int = Depends(get_current_user_id),
+):
+    """
+    로그인한 사용자의 완료된 추론 이력 조회.
+
+    원본 파일 경로나 내부 메타데이터는 반환하지 않음.
+    """
+    if not UPLOAD_ROOT.exists():
+        return {
+            "total": 0,
+            "items": [],
+            "limit": limit,
+            "offset": offset,
+        }
+
+    history = []
+
+    request_dirs = sorted(
+        (
+            path for path in UPLOAD_ROOT.iterdir()
+            if path.is_dir()
+        ),
+        key=lambda path: path.stat().st_mtime,
+        reverse=True,
+    )
+
+    for request_dir in request_dirs:
+        request_id = request_dir.name
+
+        try:
+            metadata = get_owned_request_metadata(
+                request_id,
+                current_user_id,
+            )
+        except HTTPException:
+            # 본인 데이터가 아니거나 손상된 요청은 제외
+            continue
+
+        if metadata.get("status") != "completed":
+            continue
+
+        result = metadata.get("result")
+
+        if not isinstance(result, dict):
+            continue
+
+        if not result.get("emotion"):
+            continue
+
+        history.append({
+            "requestId": request_id,
+            "emotionEventId": result.get("emotionEventId"),
+            "cameraId": metadata.get("camera_id"),
+            "emotion": result.get("emotion"),
+            "confidence": result.get("confidence"),
+            "need": result.get("need"),
+            "message": result.get("message"),
+            "topPredictions": result.get(
+                "topPredictions",
+                [],
+            ),
+            "capturedAt": result.get("capturedAt"),
+            "createdAt": result.get("createdAt"),
+            "completedAt": metadata.get("completed_at"),
+            "hasAudio": bool(metadata.get("audio_path")),
+            "hasFrame": bool(
+                metadata.get("selected_frame_path")
+            ),
+            "feedbackStatus": "not_submitted",
+        })
+
+    history.sort(
+        key=lambda item: item["completedAt"] or "",
+        reverse=True,
+    )
+
+    return {
+        "total": len(history),
+        "items": history[offset:offset + limit],
+        "limit": limit,
+        "offset": offset,
+    }
 
 # ============================================================
 # Multimodal inference upload
