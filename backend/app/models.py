@@ -7,6 +7,59 @@ from sqlmodel import Field, SQLModel
 from app.utils.time import kst_now
 
 
+class InferenceFeedback(SQLModel, table=True):
+    __tablename__ = "inference_feedback"
+
+    id: Optional[int] = Field(
+        default=None,
+        primary_key=True,
+    )
+
+    user_id: int = Field(
+        foreign_key="app_users.id",
+        index=True,
+    )
+
+    request_id: str = Field(
+        unique=True,
+        index=True,
+        max_length=36,
+    )
+
+    emotion_event_id: Optional[int] = Field(
+        default=None,
+        foreign_key="emotion_events.id",
+        index=True,
+    )
+
+    predicted_label: str = Field(max_length=100)
+    corrected_label: Optional[str] = Field(
+        default=None,
+        max_length=100,
+    )
+
+    feedback_type: str = Field(max_length=20)
+
+    comment: Optional[str] = Field(
+        default=None,
+        max_length=1000,
+    )
+
+    training_status: str = Field(
+        default="pending",
+        max_length=20,
+        index=True,
+    )
+
+    created_at: datetime = Field(
+        default_factory=kst_now,
+    )
+
+    updated_at: datetime = Field(
+        default_factory=kst_now,
+    )
+
+
 class AppUser(SQLModel, table=True):
     __tablename__ = "app_users"
 
