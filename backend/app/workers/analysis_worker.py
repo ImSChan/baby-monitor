@@ -72,6 +72,7 @@ def process_job(job: dict):
             audio_path=model_audio_path,
             frame_paths=model_frame_paths,
             metadata=metadata,
+            user_id=str(job["user_id"]),
         )
 
         if is_quiet_audio_metadata(metadata):

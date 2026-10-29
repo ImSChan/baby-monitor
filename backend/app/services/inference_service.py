@@ -7,9 +7,11 @@ def run_multimodal_inference(
     audio_path: str | None,
     frame_paths: list[str],
     metadata: dict[str, Any],
+    user_id: str | None = None,
 ) -> dict[str, Any]:
     return predict_from_paths(
         audio_path=audio_path,
         frame_paths=frame_paths,
         metadata=metadata,
+        user_id=user_id,
     )

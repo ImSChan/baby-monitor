@@ -10,8 +10,12 @@ from torchvision import models, transforms
 from transformers import Wav2Vec2FeatureExtractor, WavLMForSequenceClassification
 import torch.nn.functional as F
 
-#TODO
-USER_WEIGHTS_DIR = Path(".pt 파일 경로 추가 부탁드립니다.")
+import os
+from pathlib import Path
+
+USER_WEIGHTS_DIR = Path(
+    os.getenv("USER_WEIGHTS_DIR", "/app/weights/users")
+)
 
 WEIGHTS_DIR = Path("/app/weights")
 WEIGHTS_DIR.mkdir(parents=True, exist_ok=True)
