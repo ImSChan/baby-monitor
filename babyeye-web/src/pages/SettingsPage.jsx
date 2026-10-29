@@ -3,7 +3,6 @@ import { useAuth } from '../contexts/AuthContext'
 import Card from '../components/common/Card'
 import Header from '../components/common/Header'
 
-const { user, logout } = useAuth()
 
 const sections = [
   {
@@ -23,6 +22,7 @@ const sections = [
 ]
 
 function SettingsPage() {
+  const { user, logout } = useAuth()
   return (
     <main className='px-5 py-6'>
       <Header title='설정' subtitle='서비스 및 기기 설정 관리' />
