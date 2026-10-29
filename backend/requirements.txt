@@ -6,3 +6,5 @@ python-dotenv==1.0.1
 pydantic-settings==2.7.1
 redis==5.2.1
 python-multipart==0.0.20
+PyJWT==2.10.1
+pwdlib[argon2]==0.2.1
