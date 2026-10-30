@@ -37,3 +37,9 @@ Thumbs.db
 **/.venv
 **/venv
 /backend/uploads/inference/
+
+# Generated training data
+/backend/training-data/
+
+# Personalized model checkpoints
+/backend/weights/users/
