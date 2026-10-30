@@ -75,26 +75,26 @@ services:
     env_file:
       - .env
 
-  depends_on:
-    db:
-      condition: service_healthy
-    redis:
-      condition: service_started
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_started
 
-  volumes:
-    - ./backend/app:/app/app
-    - ./backend/uploads:/app/uploads:ro
-    - ./backend/weights:/app/weights
-    - ./backend/training-data:/app/training-data
+    volumes:
+      - ./backend/app:/app/app
+      - ./backend/uploads:/app/uploads:ro
+      - ./backend/weights:/app/weights
+      - ./backend/training-data:/app/training-data
 
-  environment:
-    USER_WEIGHTS_DIR: /app/weights/users
-    TRAINING_DATA_DIR: /app/training-data
-    INFERENCE_DATA_DIR: /app/uploads/inference
-    TRAINING_THRESHOLD: "20"
-    PYTHONUNBUFFERED: "1"
+    environment:
+      USER_WEIGHTS_DIR: /app/weights/users
+      TRAINING_DATA_DIR: /app/training-data
+      INFERENCE_DATA_DIR: /app/uploads/inference
+      TRAINING_THRESHOLD: "20"
+      PYTHONUNBUFFERED: "1"
 
-  command: python -m app.workers.training_worker
+    command: python -m app.workers.training_worker
 
   db:
     image: postgres:16
