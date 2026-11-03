@@ -9,6 +9,7 @@ from typing import Annotated, Optional
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, Query
 from fastapi.responses import FileResponse, JSONResponse
 from sqlmodel import Session, select
+from app.utils.metadata_io import atomic_write_metadata
 
 from app.database import get_session
 from app.deps import get_current_user_id
@@ -873,16 +874,7 @@ def write_metadata(
         UPLOAD_ROOT / request_id / "metadata.json"
     )
 
-    metadata_path.parent.mkdir(
-        parents=True,
-        exist_ok=True,
-    )
-
-    metadata_path.write_text(
-        json.dumps(
-            metadata,
-            ensure_ascii=False,
-            indent=2,
-        ),
-        encoding="utf-8",
+    atomic_write_metadata(
+        metadata_path,
+        metadata,
     )

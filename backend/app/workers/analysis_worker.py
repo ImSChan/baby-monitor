@@ -5,6 +5,8 @@ from pathlib import Path
 
 from sqlmodel import Session
 
+from app.utils.metadata_io import atomic_write_metadata
+
 from app.database import engine
 from app.models import EmotionEvent
 from app.services.audio_preprocess_service import convert_audio_to_wav
@@ -187,14 +189,14 @@ def read_metadata(metadata_path: str) -> dict:
     return json.loads(path.read_text(encoding="utf-8"))
 
 
-def write_metadata(metadata_path: str, metadata: dict) -> None:
-    path = Path(metadata_path)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(
-        json.dumps(metadata, ensure_ascii=False, indent=2),
-        encoding="utf-8",
+def write_metadata(
+    metadata_path: str,
+    metadata: dict,
+) -> None:
+    atomic_write_metadata(
+        metadata_path,
+        metadata,
     )
-
 
 def parse_captured_at(value: str | None) -> datetime:
     if not value:
