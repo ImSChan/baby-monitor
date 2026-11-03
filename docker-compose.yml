@@ -93,7 +93,7 @@ services:
       INFERENCE_DATA_DIR: /app/uploads/inference
       TRAINING_THRESHOLD: "20"
       TRAINING_POLL_SECONDS: "30"
-      TRAINING_TRIGGER_ENABLED: "false"
+      TRAINING_TRIGGER_ENABLED: "true"
       PYTHONUNBUFFERED: "1"
 
     command: python -m app.workers.training_worker
