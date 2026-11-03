@@ -59,7 +59,33 @@ class InferenceFeedback(SQLModel, table=True):
         default_factory=kst_now,
     )
 
+class TrainingJob(SQLModel, table=True):
+    __tablename__ = "training_jobs"
 
+    id: Optional[int] = Field(default=None, primary_key=True)
+    user_id: int = Field(foreign_key="app_users.id", index=True)
+    status: str = Field(default="queued", index=True, max_length=20)
+    sample_count: int = Field(default=0)
+
+    created_at: datetime = Field(default_factory=kst_now)
+    started_at: Optional[datetime] = None
+    completed_at: Optional[datetime] = None
+    error_message: Optional[str] = None
+
+
+class TrainingJobFeedback(SQLModel, table=True):
+    __tablename__ = "training_job_feedback"
+
+    feedback_id: int = Field(
+        foreign_key="inference_feedback.id",
+        primary_key=True,
+    )
+
+    training_job_id: int = Field(
+        foreign_key="training_jobs.id",
+        index=True,
+    )
+    
 class AppUser(SQLModel, table=True):
     __tablename__ = "app_users"
 
