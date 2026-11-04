@@ -4,9 +4,18 @@ from pydantic_settings import BaseSettings
 
 class Settings(BaseSettings):
     app_env: str = "local"
-    database_url: str = "postgresql://baby_user:baby_password@db:5432/baby_monitor"
+
+    database_url: str = (
+        "postgresql://baby_user:baby_password@db:5432/baby_monitor"
+    )
+
     redis_url: str = "redis://redis:6379/0"
-    cors_origins: str = "http://localhost:5173"
+
+    cors_origins: str = (
+        "http://localhost:5173,"
+        "https://baby-monitor-two.vercel.app"
+    )
+
     model_dir: str = "/app/models"
 
     class Config:
