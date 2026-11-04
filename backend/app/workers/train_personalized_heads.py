@@ -16,8 +16,7 @@ from collections import Counter
 from pathlib import Path
 
 import torch
-from sqlalchemy import select
-from sqlmodel import Session
+from sqlmodel import Session, select
 
 from app.database import engine
 from app.models import AppUser, InferenceFeedback, TrainingJob, TrainingJobFeedback
