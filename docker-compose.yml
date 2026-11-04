@@ -96,6 +96,14 @@ services:
       TRAINING_TRIGGER_ENABLED: "true"
       PYTHONUNBUFFERED: "1"
 
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+
     command: python -m app.workers.training_worker
 
   db:
