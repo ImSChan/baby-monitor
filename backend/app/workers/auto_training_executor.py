@@ -143,7 +143,7 @@ def claim_job(job_id, user_id):
                 UPDATE training_jobs
                 SET status = 'running',
                     started_at = CURRENT_TIMESTAMP,
-                    finished_at = NULL
+                    completed_at = NULL
                 WHERE id = :job_id
                   AND user_id = :user_id
                   AND status = 'queued'
@@ -171,7 +171,7 @@ def finish_job(job_id, status):
                 """
                 UPDATE training_jobs
                 SET status = :status,
-                    finished_at = CURRENT_TIMESTAMP
+                    completed_at = CURRENT_TIMESTAMP
                 WHERE id = :job_id
                   AND status = 'running'
                 RETURNING id
@@ -201,7 +201,7 @@ def fail_queued_job(job_id, reason):
                 """
                 UPDATE training_jobs
                 SET status = 'failed',
-                    finished_at = CURRENT_TIMESTAMP
+                    completed_at = CURRENT_TIMESTAMP
                 WHERE id = :job_id
                   AND status = 'queued'
                 """
