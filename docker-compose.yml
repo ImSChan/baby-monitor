@@ -64,7 +64,31 @@ services:
       USER_WEIGHTS_DIR: /app/weights/users
     command: python -m app.workers.analysis_worker
 
-    
+  training-executor:
+    extends:
+      service: training-worker
+
+    container_name: baby-monitor-training-executor
+
+    restart: unless-stopped
+
+    profiles:
+      - auto-training
+
+    command:
+      - python
+      - -m
+      - app.workers.auto_training_executor
+
+    environment:
+      AUTO_TRAIN_DEVICE: "cuda"
+      AUTO_TRAIN_POLL_SECONDS: "60"
+      AUTO_TRAIN_EPOCHS: "5"
+      AUTO_TRAIN_BATCH_SIZE: "4"
+      AUTO_TRAIN_LR: "0.0001"
+      AUTO_TRAIN_MAX_AUDIO_SECONDS: "10"
+      AUTO_TRAIN_STABLE_VISION_AS_NORMAL: "false"
+      
   training-worker:
     build:
       context: ./backend
