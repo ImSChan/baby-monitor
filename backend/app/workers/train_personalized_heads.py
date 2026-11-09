@@ -34,6 +34,11 @@ from app.models import (
     TrainingJobFeedback,
 )
 
+from app.services.personalized_head_store import (
+    load_active_head,
+    active_path,
+)
+
 
 ROOT = Path(
     os.getenv("INFERENCE_DATA_DIR", "/app/uploads/inference")
@@ -139,13 +144,25 @@ def get_rows(job_id, user_id):
 
         job = session.get(TrainingJob, job_id)
 
+        # 자동 실행기에서 호출된 학습 프로세스만 running 허용
+        auto_training = os.getenv("BABYEYE_AUTO_TRAIN") == "1"
+
+        allowed_statuses = (
+            ("running",)
+            if auto_training
+            else ("queued",)
+        )
+
         if (
             job is None
             or job.user_id != user_id
-            or job.status != "queued"
+            or job.status not in allowed_statuses
         ):
             raise RuntimeError(
-                "Job must exist, belong to user and have queued status"
+                f"Invalid training job state: "
+                f"job_id={job_id}, "
+                f"user_id={user_id}, "
+                f"status={getattr(job, 'status', None)}"
             )
 
         user = session.get(AppUser, user_id)
@@ -694,6 +711,34 @@ def train(args, rows):
         args.max_audio_seconds,
     )
 
+    # Start from the latest APPROVED personalized head.
+    # If none exists, keep the original base-model head.
+    approved_head = load_active_head(
+        args.user_id,
+        args.modality,
+        reference=(w0, b0),
+    )
+
+    training_parent = "base_model"
+
+    if approved_head is not None:
+        w0 = approved_head["weight"].clone()
+        b0 = approved_head["bias"].clone()
+
+        training_parent = str(
+            active_path(args.user_id, args.modality)
+        )
+
+        print(
+            "Continuing from approved personalized head:",
+            training_parent,
+        )
+    else:
+        print(
+            "No approved personalized head; "
+            "starting from base model"
+        )
+
     actual = Counter(
         labels[i]
         for i in y.tolist()
@@ -848,6 +893,7 @@ def train(args, rows):
 
     report = {
         "job_id": args.job_id,
+        "initial_head_source": training_parent,
         "user_id": args.user_id,
         "modality": args.modality,
         "candidate": str(file),
