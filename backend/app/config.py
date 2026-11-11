@@ -12,8 +12,9 @@ class Settings(BaseSettings):
     redis_url: str = "redis://redis:6379/0"
 
     cors_origins: str = (
-        "http://localhost:5173,"
-        "https://baby-monitor-two.vercel.app"
+        "http://localhost:5173",
+        "https://baby-monitor-two.vercel.app",
+        "https://localhost"
     )
 
     model_dir: str = "/app/models"
