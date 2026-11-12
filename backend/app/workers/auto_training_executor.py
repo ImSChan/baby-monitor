@@ -1,7 +1,7 @@
 
 """BabyEye 11-B-2: guarded automatic training executor.
 
-Keeps the existing queue creator unchanged.
+Runs modality-specific jobs created by the eligibility-based queue creator.
 Runs qualified queued jobs, records DB state, and stages
 candidate heads without promoting them to live inference.
 """
@@ -12,7 +12,6 @@ import os
 import subprocess
 import sys
 import time
-from collections import Counter
 from pathlib import Path
 
 from sqlalchemy import text
@@ -20,10 +19,17 @@ from sqlmodel import Session, select
 
 from app.database import engine
 from app.models import TrainingJob
-from app.workers.train_personalized_heads import (
-    entries,
-    get_rows,
+from app.services.training_data_service import get_rows as validated_rows
+from app.services.training_policy import (
+    TrainingPolicy, class_counts, distribution_is_trainable, job_spec,
 )
+from app.utils.time import kst_now
+
+ROOT = Path(os.getenv("INFERENCE_DATA_DIR", "/app/uploads/inference")).resolve()
+
+
+def get_rows(job_id, user_id):
+    return validated_rows(job_id, user_id, root=ROOT, db_engine=engine)
 
 
 logging.basicConfig(
@@ -53,16 +59,6 @@ TRAIN_TIMEOUT_SECONDS = int(
 STAGING = Path(
     os.getenv("TRAINING_DATA_DIR", "/app/training-data")
 ).resolve()
-
-# Disabled by default because "stable" does not always
-# mean the image class "normal".
-STABLE_VISION_AS_NORMAL = (
-    os.getenv("AUTO_TRAIN_STABLE_VISION_AS_NORMAL", "false")
-    .lower()
-    in ("1", "true", "yes")
-)
-
-MIN_PER_CLASS = 4
 
 if DEVICE not in ("cpu", "cuda"):
     raise RuntimeError("AUTO_TRAIN_DEVICE must be cpu or cuda")
@@ -96,37 +92,14 @@ def list_queued_jobs():
         ]
 
 
-def check_eligible_modalities(rows):
-    """Validate class distribution before launching GPU work."""
-
+def check_eligible_modalities(rows, policy=None, modalities=None):
+    policy = policy or TrainingPolicy.from_env()
     eligible = []
-
-    for modality in ("audio", "vision"):
-        items, label_names = entries(
-            rows,
-            modality,
-            STABLE_VISION_AS_NORMAL,
-        )
-
-        counts = Counter(
-            label_names[label_id]
-            for _, _, label_id in items
-        )
-
-        log.info(
-            "Preflight %s: %s",
-            modality,
-            dict(counts),
-        )
-
-        if len(counts) < 2:
-            continue
-
-        if min(counts.values()) < MIN_PER_CLASS:
-            continue
-
-        eligible.append(modality)
-
+    for modality in modalities or ("audio", "vision"):
+        counts = class_counts(rows, modality, policy)
+        log.info("Preflight %s: %s (minimum=%s)", modality, dict(counts), policy.min_per_class)
+        if distribution_is_trainable(counts, policy.min_per_class):
+            eligible.append(modality)
     return eligible
 
 
@@ -142,7 +115,7 @@ def claim_job(job_id, user_id):
                 """
                 UPDATE training_jobs
                 SET status = 'running',
-                    started_at = CURRENT_TIMESTAMP,
+                    started_at = :now,
                     completed_at = NULL
                 WHERE id = :job_id
                   AND user_id = :user_id
@@ -153,6 +126,7 @@ def claim_job(job_id, user_id):
             {
                 "job_id": job_id,
                 "user_id": user_id,
+                "now": kst_now(),
             },
         )
 
@@ -171,7 +145,7 @@ def finish_job(job_id, status):
                 """
                 UPDATE training_jobs
                 SET status = :status,
-                    completed_at = CURRENT_TIMESTAMP
+                    completed_at = :now
                 WHERE id = :job_id
                   AND status = 'running'
                 RETURNING id
@@ -180,6 +154,7 @@ def finish_job(job_id, status):
             {
                 "job_id": job_id,
                 "status": status,
+                "now": kst_now(),
             },
         )
 
@@ -189,25 +164,6 @@ def finish_job(job_id, status):
                 "current status is not running"
             )
 
-
-def fail_queued_job(job_id, reason):
-    """Mark invalid jobs failed; never release reserved feedback."""
-
-    log.error("Job %s preflight failed: %s", job_id, reason)
-
-    with engine.begin() as conn:
-        conn.execute(
-            text(
-                """
-                UPDATE training_jobs
-                SET status = 'failed',
-                    completed_at = CURRENT_TIMESTAMP
-                WHERE id = :job_id
-                  AND status = 'queued'
-                """
-            ),
-            {"job_id": job_id},
-        )
 
 
 def write_failure_reason(job_id, reason):
@@ -223,7 +179,8 @@ def write_failure_reason(job_id, reason):
     )
 
 
-def train_modality(job_id, user_id, modality):
+def train_modality(job_id, user_id, modality, policy=None):
+    policy = policy or TrainingPolicy.from_env()
     """Run existing guarded trainer as a child process."""
 
     job_dir = STAGING / f"job_{job_id}"
@@ -268,7 +225,7 @@ def train_modality(job_id, user_id, modality):
         str(MAX_AUDIO_SECONDS),
     ]
 
-    if modality == "vision" and STABLE_VISION_AS_NORMAL:
+    if modality == "vision" and policy.stable_vision_as_normal:
         command.append("--stable-vision-as-normal")
 
     env = os.environ.copy()
@@ -323,64 +280,38 @@ def train_modality(job_id, user_id, modality):
 
 
 def process_job(job_id, user_id):
-    """Preflight, claim, train, and finalize one job."""
-
-    log.info(
-        "Checking job=%s user=%s",
-        job_id,
-        user_id,
-    )
-
+    """Legacy preflight failures are diagnostic only; new jobs persist exact scope."""
+    with Session(engine) as session:
+        job = session.get(TrainingJob, job_id)
+        if job is None or job.user_id != user_id or job.status != "queued":
+            return
+        is_legacy = job.modalities is None and job.training_policy is None
     try:
-        # Must run while the job is still queued.
+        requested, policy = job_spec(job)
         rows = get_rows(job_id, user_id)
-
-        modalities = check_eligible_modalities(rows)
-
+        modalities = check_eligible_modalities(rows, policy, requested)
+        if not modalities or (requested is not None and set(modalities) != set(requested)):
+            raise ValueError("Insufficient valid samples/classes for requested modalities")
     except Exception as exc:
-        # Invalid ownership, missing data or mock samples.
-        # Preserve feedback rows and the reserved state.
-        try:
-            write_failure_reason(job_id, repr(exc))
-            fail_queued_job(job_id, repr(exc))
-        except Exception:
-            log.exception("Failed to record preflight error")
+        if is_legacy:
+            log.warning("Legacy job %s remains queued; manual review required: %s", job_id, exc)
+            return
+        if claim_job(job_id, user_id):
+            try:
+                write_failure_reason(job_id, repr(exc))
+            finally:
+                finish_job(job_id, "failed")
         return
-
-    if not modalities:
-        log.info(
-            "SKIP job=%s: insufficient class diversity. "
-            "Status remains queued.",
-            job_id,
-        )
-        return
-
-    # Atomically claim before starting child processes.
     if not claim_job(job_id, user_id):
         log.info("Job already claimed: %s", job_id)
         return
-
     try:
         for modality in modalities:
-            train_modality(
-                job_id,
-                user_id,
-                modality,
-            )
-
+            train_modality(job_id, user_id, modality, policy)
         finish_job(job_id, "completed")
-
-        log.info(
-            "Job %s COMPLETED. Candidates are staged only.",
-            job_id,
-        )
-
+        log.info("Job %s completed; candidates only, no automatic promotion", job_id)
     except Exception as exc:
-        log.exception(
-            "Job %s training failed",
-            job_id,
-        )
-
+        log.exception("Job %s training failed", job_id)
         try:
             write_failure_reason(job_id, repr(exc))
         finally:

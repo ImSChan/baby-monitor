@@ -1,0 +1,44 @@
+# Isolated test stack: no production env_file, volumes, published ports or GPU.
+services:
+  test-db:
+    image: postgres:16
+    environment:
+      POSTGRES_DB: babyeye_training_test
+      POSTGRES_USER: test_user
+      POSTGRES_PASSWORD: test_only_password
+    tmpfs:
+      - /var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U test_user -d babyeye_training_test"]
+      interval: 2s
+      timeout: 5s
+      retries: 30
+
+  test-runner:
+    image: ${TRAINING_TEST_IMAGE:-babyeye-training-test-runner}
+    build:
+      context: ./backend
+      dockerfile: Dockerfile.worker
+    depends_on:
+      test-db:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql://test_user:test_only_password@test-db:5432/babyeye_training_test
+      TEST_POSTGRES_URL: postgresql://test_user:test_only_password@test-db:5432/babyeye_training_test
+      TRAINING_TRIGGER_ENABLED: "false"
+      TRAINING_MIN_PER_CLASS: "3"
+      AUTO_TRAIN_STABLE_VISION_AS_NORMAL: "false"
+      AUTO_TRAIN_DEVICE: cpu
+      USER_WEIGHTS_DIR: /tmp/approved-weights
+      TRAINING_DATA_DIR: /tmp/training-data
+      INFERENCE_DATA_DIR: /tmp/inference
+    volumes:
+      - ./backend/app:/app/app:ro
+      - ./backend/tests:/app/tests:ro
+      - ./backend/migrations:/app/migrations:ro
+      - ./backend/requirements.test.txt:/app/requirements.test.txt:ro
+      - ./backend/requirements.training-test.txt:/app/requirements.training-test.txt:ro
+    command:
+      - bash
+      - -lc
+      - pip install --no-cache-dir -r /app/requirements.training-test.txt && python -m pytest /app/tests -q -p no:cacheprovider

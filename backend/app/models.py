@@ -66,6 +66,9 @@ class TrainingJob(SQLModel, table=True):
     user_id: int = Field(foreign_key="app_users.id", index=True)
     status: str = Field(default="queued", index=True, max_length=20)
     sample_count: int = Field(default=0)
+    # NULL/NULL preserves legacy jobs. New jobs persist immutable eligibility policy.
+    modalities: Optional[list[str]] = Field(default=None, sa_column=Column(JSON, nullable=True))
+    training_policy: Optional[dict[str, Any]] = Field(default=None, sa_column=Column(JSON, nullable=True))
 
     created_at: datetime = Field(default_factory=kst_now)
     started_at: Optional[datetime] = None

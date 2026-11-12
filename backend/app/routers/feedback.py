@@ -138,6 +138,7 @@ def get_user_feedback(
         select(InferenceFeedback)
         .where(InferenceFeedback.id == feedback_id)
         .where(InferenceFeedback.user_id == user_id)
+        .with_for_update()
     ).first()
 
     if feedback is None:

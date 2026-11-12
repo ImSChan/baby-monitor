@@ -16,6 +16,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 import torch
+from app.services.training_policy import LABELS
 
 
 USER_WEIGHTS_DIR = Path(
@@ -25,23 +26,6 @@ USER_WEIGHTS_DIR = Path(
 TRAINING_DATA_DIR = Path(
     os.getenv("TRAINING_DATA_DIR", "/app/training-data")
 ).resolve()
-
-LABELS = {
-    "audio": [
-        "belly pain",
-        "burping",
-        "cold_hot",
-        "discomfort",
-        "hungry",
-        "laugh",
-        "tired",
-    ],
-    "vision": [
-        "happy",
-        "normal",
-        "unhappy",
-    ],
-}
 
 
 def check_identity(user_id, modality):

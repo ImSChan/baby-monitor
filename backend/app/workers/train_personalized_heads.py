@@ -18,22 +18,13 @@ import argparse
 import json
 import os
 import random
-import uuid
 
 from collections import Counter
 from pathlib import Path
 
 import torch
-from sqlmodel import Session, select
 
 from app.database import engine
-from app.models import (
-    AppUser,
-    InferenceFeedback,
-    TrainingJob,
-    TrainingJobFeedback,
-)
-
 from app.services.personalized_head_store import (
     load_active_head,
     active_path,
@@ -51,296 +42,20 @@ STAGING = Path(
 WEIGHTS = Path("/app/weights")
 
 
-AUDIO_LABELS = [
-    "belly pain",
-    "burping",
-    "cold_hot",
-    "discomfort",
-    "hungry",
-    "laugh",
-    "tired",
-]
+from app.services.training_policy import (
+    LABELS, AUDIO_MAP, VISION_MAP, LABEL_ALIASES, TrainingPolicy,
+    normalize_feedback_label, entries, job_spec, distribution_is_trainable,
+)
+from app.services.training_data_service import (
+    get_rows as validated_rows, get_job, safe_path,
+)
 
-IMAGE_LABELS = [
-    "happy",
-    "normal",
-    "unhappy",
-]
+AUDIO_LABELS = LABELS["audio"]
+IMAGE_LABELS = LABELS["vision"]
 
-
-# Only direct, relatively unambiguous user labels are mapped.
-AUDIO_MAP = {
-    "feeding": "hungry",
-    "sleep": "tired",
-}
-
-VISION_MAP = {
-    "care": "unhappy",
-}
-
-# stable -> normal is NOT unambiguous.
-# It must be explicitly enabled with --stable-vision-as-normal.
-
-
-# ============================================================
-# Feedback label normalization
-# ============================================================
-
-LABEL_ALIASES = {
-    # Feeding
-    "feeding": "feeding",
-    "hungry": "feeding",
-    "배고픔": "feeding",
-    "배고파요": "feeding",
-
-    # Sleep
-    "sleep": "sleep",
-    "tired": "sleep",
-    "졸림": "sleep",
-    "졸려요": "sleep",
-    "잠와요": "sleep",
-
-    # Care
-    "care": "care",
-    "discomfort": "care",
-    "불편함": "care",
-
-    # Stable
-    "stable": "stable",
-    "안정": "stable",
-    "안정 상태": "stable",
-}
-
-
-def normalize_feedback_label(value):
-    """Convert stored Korean/English feedback labels to canonical labels."""
-
-    key = str(value or "").strip().lower()
-    return LABEL_ALIASES.get(key)
-
-
-# ============================================================
-# File safety
-# ============================================================
-
-def safe_path(value, parent):
-    if not isinstance(value, str) or not value:
-        return None
-
-    p = Path(value).resolve()
-
-    if p.is_relative_to(parent) and p.is_file():
-        return p
-
-    return None
-
-
-# ============================================================
-# Load training rows
-# ============================================================
 
 def get_rows(job_id, user_id):
-    with Session(engine) as session:
-
-        job = session.get(TrainingJob, job_id)
-
-        # 자동 실행기에서 호출된 학습 프로세스만 running 허용
-        auto_training = os.getenv("BABYEYE_AUTO_TRAIN") == "1"
-
-        allowed_statuses = (
-            ("running",)
-            if auto_training
-            else ("queued",)
-        )
-
-        if (
-            job is None
-            or job.user_id != user_id
-            or job.status not in allowed_statuses
-        ):
-            raise RuntimeError(
-                f"Invalid training job state: "
-                f"job_id={job_id}, "
-                f"user_id={user_id}, "
-                f"status={getattr(job, 'status', None)}"
-            )
-
-        user = session.get(AppUser, user_id)
-
-        if not user:
-            raise RuntimeError("Missing user")
-
-        name = (user.name or "").lower()
-        email = (user.email or "").lower()
-
-        if (
-            "mock" in name
-            or "mock" in email
-            or "example.invalid" in email
-            or "test-only" in name
-        ):
-            raise RuntimeError(
-                "Synthetic/mock user rejected. "
-                "Use genuine labeled feedback only."
-            )
-
-        links = session.exec(
-            select(TrainingJobFeedback).where(
-                TrainingJobFeedback.training_job_id == job_id
-            )
-        ).all()
-
-        if len(links) != job.sample_count:
-            raise RuntimeError(
-                f"Job count mismatch: "
-                f"expected {job.sample_count}, "
-                f"found {len(links)}"
-            )
-
-        rows = []
-
-        for link in links:
-
-            fb = session.get(
-                InferenceFeedback,
-                link.feedback_id,
-            )
-
-            if (
-                not fb
-                or fb.user_id != user_id
-                or fb.training_status != "reserved"
-            ):
-                raise RuntimeError(
-                    "Unexpected feedback ownership/reservation status"
-                )
-
-            if fb.feedback_type not in ("correct", "incorrect"):
-                raise RuntimeError("Non-trainable feedback type")
-
-            # Normalize Korean and English feedback labels.
-            label = normalize_feedback_label(
-                fb.corrected_label
-            )
-
-            if label is None:
-                raise RuntimeError(
-                    f"Unsupported corrected label: "
-                    f"{fb.corrected_label!r} "
-                    f"(feedback_id={fb.id})"
-                )
-
-            rid = str(uuid.UUID(fb.request_id))
-
-            if rid != fb.request_id:
-                raise RuntimeError(
-                    "Request UUID not canonical"
-                )
-
-            rd = (ROOT / rid).resolve()
-
-            if not rd.is_relative_to(ROOT):
-                raise RuntimeError(
-                    "Unsafe request directory"
-                )
-
-            data = json.loads(
-                (rd / "metadata.json").read_text(
-                    encoding="utf-8"
-                )
-            )
-
-            if (
-                data.get("request_id") != rid
-                or int(data["user_id"]) != user_id
-                or data.get("status") != "completed"
-            ):
-                raise RuntimeError(
-                    "Metadata request/owner/status mismatch"
-                )
-
-            if (
-                data.get("synthetic")
-                or data.get("mock")
-                or data.get("is_mock")
-                or data.get("test_data")
-            ):
-                raise RuntimeError(
-                    "Mock metadata rejected"
-                )
-
-            ap = safe_path(
-                data.get("converted_audio_path")
-                or data.get("model_audio_path")
-                or data.get("audio_path"),
-                rd,
-            )
-
-            vp = safe_path(
-                data.get("selected_frame_path"),
-                rd,
-            )
-
-            if not vp:
-                vp = next(
-                    (
-                        safe_path(p, rd)
-                        for p in data.get("model_frame_paths", [])
-                        if safe_path(p, rd)
-                    ),
-                    None,
-                )
-
-            rows.append(
-                {
-                    "id": rid,
-                    "label": label,
-                    "audio": ap,
-                    "vision": vp,
-                }
-            )
-
-        return rows
-
-
-# ============================================================
-# Map feedback labels to model labels
-# ============================================================
-
-def entries(rows, modality, stable_vision_as_normal):
-
-    mapping = (
-        AUDIO_MAP
-        if modality == "audio"
-        else dict(VISION_MAP)
-    )
-
-    if modality == "vision" and stable_vision_as_normal:
-        mapping["stable"] = "normal"
-
-    labels = (
-        AUDIO_LABELS
-        if modality == "audio"
-        else IMAGE_LABELS
-    )
-
-    out = []
-
-    for row in rows:
-
-        target = mapping.get(row["label"])
-        file = row[modality]
-
-        if target and file:
-            out.append(
-                (
-                    row["id"],
-                    file,
-                    labels.index(target),
-                )
-            )
-
-    return out, labels
+    return validated_rows(job_id, user_id, root=ROOT, db_engine=engine)
 
 
 # ============================================================
@@ -600,7 +315,11 @@ def extract(mod, items, device, max_audio_seconds):
 # Stratified train/validation split
 # ============================================================
 
-def stratified_split(ys, seed):
+def stratified_split(ys, seed, min_per_class=None):
+    minimum = TrainingPolicy.from_env().min_per_class if min_per_class is None else min_per_class
+    TrainingPolicy(minimum)
+    if len(set(ys.tolist())) < 2:
+        raise RuntimeError("At least two decoded target classes required for stratified validation")
 
     rng = random.Random(seed)
 
@@ -615,9 +334,9 @@ def stratified_split(ys, seed):
             if v == y
         ]
 
-        if len(idx) < 4:
+        if len(idx) < minimum:
             raise RuntimeError(
-                "Need >=4 genuine examples PER target class "
+                f"Need >={minimum} genuine examples PER target class "
                 "(stratified validation)"
             )
 
@@ -667,12 +386,13 @@ def metrics(head, X, y, indexes):
 # Training
 # ============================================================
 
-def train(args, rows):
+def train(args, rows, policy=None):
+    policy = policy or TrainingPolicy(TrainingPolicy.from_env().min_per_class, args.stable_vision_as_normal)
 
     items, labels = entries(
         rows,
         args.modality,
-        args.stable_vision_as_normal,
+        policy.stable_vision_as_normal,
     )
 
     distribution = Counter(
@@ -686,9 +406,9 @@ def train(args, rows):
         dict(distribution),
     )
 
-    if len(distribution) < 2:
+    if not distribution_is_trainable(distribution, policy.min_per_class):
         raise RuntimeError(
-            "At least two different mapped classes required. "
+            f"Need >=2 mapped classes and >={policy.min_per_class} samples per class. "
             "No model is written."
         )
 
@@ -751,9 +471,12 @@ def train(args, rows):
         dict(actual),
     )
 
+    if not distribution_is_trainable(actual, policy.min_per_class):
+        raise RuntimeError("Decoded samples no longer meet the persisted training policy; no candidate written")
     tr, va = stratified_split(
         y,
         args.seed,
+        policy.min_per_class,
     )
 
     # Train only the head.
@@ -896,6 +619,7 @@ def train(args, rows):
         "initial_head_source": training_parent,
         "user_id": args.user_id,
         "modality": args.modality,
+        "training_policy": policy.snapshot(),
         "candidate": str(file),
         "mapped_labels": dict(actual),
         "train_n": len(tr),
@@ -1031,20 +755,25 @@ def main():
             "Invalid training parameters"
         )
 
-    rows = get_rows(
-        args.job_id,
-        args.user_id,
-    )
+    job = get_job(args.job_id, args.user_id, db_engine=engine)
+    modalities, policy = job_spec(job)
+    if modalities is None:
+        # Preserve the manual opt-in flag for legacy jobs.
+        policy = TrainingPolicy(policy.min_per_class, args.stable_vision_as_normal)
+    elif args.action == "train" and args.modality not in modalities:
+        p.error("Requested modality is not authorized by this job")
+    rows = get_rows(args.job_id, args.user_id)
 
     if args.action == "inspect":
         inspect(
             rows,
-            args.stable_vision_as_normal,
+            policy.stable_vision_as_normal,
         )
     else:
         train(
             args,
             rows,
+            policy,
         )
 
 

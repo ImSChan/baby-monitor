@@ -87,7 +87,6 @@ services:
       AUTO_TRAIN_BATCH_SIZE: "4"
       AUTO_TRAIN_LR: "0.0001"
       AUTO_TRAIN_MAX_AUDIO_SECONDS: "10"
-      AUTO_TRAIN_STABLE_VISION_AS_NORMAL: "false"
       
   training-worker:
     build:
@@ -115,9 +114,10 @@ services:
       USER_WEIGHTS_DIR: /app/weights/users
       TRAINING_DATA_DIR: /app/training-data
       INFERENCE_DATA_DIR: /app/uploads/inference
-      TRAINING_THRESHOLD: "20"
+      TRAINING_MIN_PER_CLASS: "${TRAINING_MIN_PER_CLASS:-3}"
+      AUTO_TRAIN_STABLE_VISION_AS_NORMAL: "${AUTO_TRAIN_STABLE_VISION_AS_NORMAL:-false}"
       TRAINING_POLL_SECONDS: "30"
-      TRAINING_TRIGGER_ENABLED: "true"
+      TRAINING_TRIGGER_ENABLED: "${TRAINING_TRIGGER_ENABLED:-true}"
       PYTHONUNBUFFERED: "1"
 
     deploy:

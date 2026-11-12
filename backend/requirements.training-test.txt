@@ -1,0 +1,4 @@
+-r requirements.test.txt
+# Install CPU torch separately on development PCs; worker image already provides it.
+numpy>=1.26,<2
+Pillow>=10,<12
