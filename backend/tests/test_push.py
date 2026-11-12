@@ -5,7 +5,7 @@ import pytest
 from firebase_admin import messaging
 from sqlalchemy.exc import IntegrityError
 from sqlmodel import Session, select
-from app.models import EmotionEvent, NotificationEvent, PushDevice, PushDelivery, InferenceFeedback
+from app.models import EmotionEvent, NotificationEvent, PushDevice, PushDelivery, InferenceFeedback, NotificationPreference
 from app.utils.time import kst_now
 from app.workers import notification_worker as worker
 from app.workers import training_worker
@@ -15,6 +15,9 @@ from app.routers import inference
 def seed(db, device=True):
     request_id = str(uuid4())
     with Session(db) as session:
+        if session.get(NotificationPreference, 1) is None:
+            session.add(NotificationPreference(user_id=1, enabled=True))
+            session.flush()
         emotion = EmotionEvent(user_id=1, emotion="배고픔", confidence=.95, need="feeding")
         session.add(emotion)
         session.flush()
@@ -183,16 +186,6 @@ def test_unique_outbox_request(db):
         session.add(NotificationEvent(user_id=1, request_id=rid, emotion_event_id=event.emotion_event_id,
             result={}, expires_at=kst_now()))
         with pytest.raises(IntegrityError): session.commit()
-
-
-@pytest.mark.parametrize('need,confidence,enabled', [('stable', .99, True), ('feeding', .3, True), ('care', .95, False)])
-def test_notification_policy_rejects_without_database_work(db, push_enabled, monkeypatch, need, confidence, enabled):
-    from app.services.notification_service import enqueue_notification
-    monkeypatch.setattr(push_enabled, 'push_enabled', enabled)
-    event = EmotionEvent(user_id=1, emotion='상태', need=need, confidence=confidence)
-    with Session(db) as session:
-        assert enqueue_notification(session, event, str(uuid4()), {}) is None
-        assert not session.exec(select(NotificationEvent)).all()
 
 
 def test_firebase_payload_contains_only_identifiers_and_stable_tag(db, monkeypatch):

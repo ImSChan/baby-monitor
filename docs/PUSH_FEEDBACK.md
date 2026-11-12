@@ -1,5 +1,7 @@
 # BabyEye 푸시·피드백 구현 및 적용
 
+> 최신 알림 요구사항(켜기/끄기, 동일 상태 3회, 목록/확인)은 [NOTIFICATIONS_SIMPLE.md](NOTIFICATIONS_SIMPLE.md)를 따른다. 아래 문서의 confidence/cooldown 조건과 알림 상세 피드백 연결은 이전 구현 기록이다. 추가로 002 마이그레이션이 필요하다.
+
 ## 작업 기준
 
 - 최신 `origin/main`의 `1c3dcc2`에서 `codex/push-feedback-ux` 브랜치를 만들었다.

@@ -1,40 +1,48 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
-import { apiGet } from '../api/client'
-import { FeedbackCard } from './FeedbackPage'
+import { CheckCircle2 } from 'lucide-react'
+import { apiGet, apiPost } from '../api/client'
 import { useAuth } from '../contexts/AuthContext'
 
 export default function NotificationResultPage() {
   const { eventId } = useParams()
-  const { user, expireSession } = useAuth()
+  const { user } = useAuth()
   const navigate = useNavigate()
   const [event, setEvent] = useState(null)
   const [error, setError] = useState('')
-  const load = useCallback(async () => {
-    const data = await apiGet(`/api/push/events/${encodeURIComponent(eventId)}`)
-    setEvent(data)
-  }, [eventId])
+  const [saving, setSaving] = useState(false)
+  const [attempt, setAttempt] = useState(0)
   useEffect(() => {
     let active = true
-    setEvent(null)
-    setError('')
+    setEvent(null); setError('')
     apiGet(`/api/push/events/${encodeURIComponent(eventId)}`).then(data => {
       if (active) setEvent(data)
     }).catch(err => {
-      if (!active) return
-      if (err.status === 401) {
-        expireSession()
-        navigate('/login', { replace: true, state: { from: `/notifications/${eventId}` } })
-      } else setError(err.status === 404 ? '분석 결과가 없거나 현재 계정으로 볼 수 없습니다.' : '결과를 불러오지 못했습니다. 다시 시도해주세요.')
+      if (active) setError(err.status === 404 ? '알림이 없거나 현재 계정으로 볼 수 없습니다.' : '알림을 불러오지 못했습니다.')
     })
     return () => { active = false }
-  }, [eventId, user?.id, navigate])
-  return <main className="p-5 space-y-4">
-    <h1 className="text-xl font-bold">알림 분석 결과</h1>
-    <Link to="/feedback" className="text-blue-300">전체 피드백 이력</Link>
-    {error && <p role="alert">{error}</p>}
-    {!error && !event && <p role="status">결과를 불러오는 중...</p>}
-    {event && <FeedbackCard key={event.requestId} item={{ ...event.result, requestId: event.requestId }}
-      feedback={event.feedback} onSaved={load} />}
+  }, [eventId, user?.id, attempt])
+  async function confirm() {
+    setSaving(true); setError('')
+    try {
+      await apiPost(`/api/push/events/${encodeURIComponent(eventId)}/read`, {})
+      window.dispatchEvent(new Event('babyeye:notifications'))
+      navigate('/notifications')
+    } catch { setError('확인 상태를 저장하지 못했습니다. 다시 눌러주세요.') }
+    finally { setSaving(false) }
+  }
+  return <main className="space-y-5 px-5 py-6">
+    <Link to="/notifications" className="text-sm text-blue-300">← 알림 목록</Link>
+    <h1 className="text-2xl font-bold">상태 알림 확인</h1>
+    {error && <div><p role="alert" className="text-red-300">{error}</p>{!event && <button onClick={() => setAttempt(value => value + 1)} className="mt-3 text-blue-300">다시 시도</button>}</div>}
+    {!error && !event && <p role="status">알림을 불러오는 중…</p>}
+    {event && <article className="rounded-2xl border border-slate-700 bg-slate-900 p-5">
+      <p className="text-sm text-slate-400">{new Date(event.createdAt).toLocaleString('ko-KR')}</p>
+      <h2 className="mt-3 text-2xl font-bold">{event.result.emotion}</h2>
+      {event.result.consecutiveCount === 3 && <p className="mt-2 text-sm text-blue-200">같은 상태가 3번 연속 감지되었어요.</p>}
+      <p className="mt-4 leading-7 text-slate-300">{event.result.message || '아기의 상태를 확인해주세요.'}</p>
+      {event.readAt && <p className="mt-4 text-sm text-emerald-300">확인한 알림입니다.</p>}
+      <button disabled={saving} onClick={confirm} className="mt-6 flex w-full items-center justify-center gap-2 rounded-xl bg-blue-600 py-3 font-semibold disabled:opacity-50"><CheckCircle2 size={18} />{saving ? '저장 중…' : '확인 완료'}</button>
+    </article>}
   </main>
 }

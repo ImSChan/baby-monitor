@@ -20,5 +20,5 @@ def send_notification(token, event):
         android=messaging.AndroidConfig(priority="high", ttl=timedelta(seconds=max(0, int((event.expires_at - kst_now()).total_seconds()))),
             collapse_key=f"babyeye-{event.id}",
             notification=messaging.AndroidNotification(
-                channel_id="babyeye-analysis", tag=f"babyeye-{event.id}")),
+                channel_id="babyeye-analysis", sound="default", tag=f"babyeye-{event.id}")),
     ), app=firebase_app())

@@ -10,7 +10,7 @@ from firebase_admin import messaging, exceptions
 from sqlmodel import Session, select
 from app.config import get_settings
 from app.database import engine
-from app.models import NotificationEvent, PushDevice, PushDelivery
+from app.models import NotificationEvent, PushDevice, PushDelivery, NotificationPreference
 from app.services.firebase_service import send_notification
 from app.utils.time import kst_now
 from app.routers.inference import get_owned_request_metadata
@@ -28,10 +28,14 @@ def dispatch_once(send=send_notification, db_engine=engine):
             NotificationEvent.status == "pending", NotificationEvent.available_at <= now).order_by(NotificationEvent.id)
             .limit(1).with_for_update(skip_locked=True)).first()
         if event:
-            if event.expires_at <= now:
+            preference = session.exec(select(NotificationPreference).where(
+                NotificationPreference.user_id == event.user_id).with_for_update()).first()
+            if not preference or not preference.enabled or event.created_at < preference.enabled_at:
+                event.status = "cancelled"
+            elif event.expires_at <= now:
                 event.status = "expired"
             else:
-                # Metadata must be durable before users can submit training feedback.
+                # Completed analysis metadata must be durable before delivery.
                 try:
                     ready = get_owned_request_metadata(event.request_id, event.user_id).get("status") == "completed"
                 except Exception:
@@ -58,10 +62,12 @@ def dispatch_once(send=send_notification, db_engine=engine):
         if not delivery:
             return False
         event = session.get(NotificationEvent, delivery.event_id)
+        preference = session.exec(select(NotificationPreference).where(
+            NotificationPreference.user_id == event.user_id).with_for_update()).first()
         # Lock installation through send so revoke/account changes cannot race it.
         device = session.exec(select(PushDevice).where(PushDevice.id == delivery.device_id)
                               .with_for_update()).first()
-        if (not device or not device.active or device.user_id != event.user_id
+        if (not preference or not preference.enabled or event.created_at < preference.enabled_at or not device or not device.active or device.user_id != event.user_id
                 or device.token != delivery.token or event.expires_at <= now):
             delivery.status = "cancelled"
         else:

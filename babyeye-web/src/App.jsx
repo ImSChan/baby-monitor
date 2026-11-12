@@ -1,7 +1,8 @@
-﻿
+
 import { BrowserRouter } from 'react-router-dom'
 
 import PushCenter from './components/common/PushCenter'
+import { NotificationProvider } from './contexts/NotificationContext'
 import AppRouter from './routes/AppRouter'
 import BottomNav from './components/common/BottomNav'
 import { AuthProvider, useAuth } from './contexts/AuthContext'
@@ -29,7 +30,7 @@ function App() {
   return (
     <BrowserRouter>
       <AuthProvider>
-        <AppLayout />
+        <NotificationProvider><AppLayout /></NotificationProvider>
       </AuthProvider>
     </BrowserRouter>
   )

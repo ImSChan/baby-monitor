@@ -1,4 +1,4 @@
-﻿
+
 import {
   Navigate,
   Outlet,
@@ -7,6 +7,7 @@ import {
   useLocation,
 } from 'react-router-dom'
 
+import NotificationsPage from '../pages/NotificationsPage'
 import NotificationResultPage from '../pages/NotificationResultPage'
 import { useAuth } from '../contexts/AuthContext'
 
@@ -50,6 +51,7 @@ function AppRouter() {
         <Route path="/emotion" element={<EmotionPage />} />
         <Route path="/smart-home" element={<SmartHomePage />} />
         <Route path="/settings" element={<SettingsPage />} />
+        <Route path="/notifications" element={<NotificationsPage />} />
         <Route path="/notifications/:eventId" element={<NotificationResultPage />} />
         <Route path="/feedback" element={<FeedbackPage />} />
       </Route>

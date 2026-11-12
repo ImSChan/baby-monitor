@@ -28,15 +28,16 @@ def pg():
     engine = create_engine(url, connect_args={'options': f'-csearch_path={schema}'})
     try:
         baseline = [t for t in SQLModel.metadata.sorted_tables
-                    if t.name not in {'push_devices', 'notification_events', 'push_deliveries'}]
+                    if t.name not in {'push_devices', 'notification_events', 'push_deliveries', 'notification_preferences', 'notification_observations'}]
         SQLModel.metadata.create_all(engine, tables=baseline)
-        migration = (Path(__file__).parents[1] / 'migrations/001_push.sql').read_text(encoding='utf-8')
+        migrations = [(Path(__file__).parents[1] / 'migrations' / name).read_text(encoding='utf-8') for name in ['001_push.sql', '002_notification_inbox.sql']]
         # psycopg2 runs the explicit BEGIN/COMMIT migration exactly as psql does.
         for _ in range(2):
             raw = engine.raw_connection()
             try:
                 cursor = raw.cursor()
-                cursor.execute(migration)
+                for migration in migrations:
+                    cursor.execute(migration)
                 raw.commit()
                 cursor.close()
             finally:
@@ -64,24 +65,22 @@ def test_migration_rerun_and_upsert(pg):
         assert device.user_id == 2 and device.token == 'bbbbbbbbbbbbbbbbbbbbb'
 
 
-def test_transactional_enqueue_policy_idempotency_and_rollback(pg, push_enabled):
+def test_transactional_three_observations_rollback(pg, push_enabled):
+    from test_notification_inbox import enable, observe
+    from app.models import NotificationObservation
+    enable(pg)
+    assert observe(pg, 'feeding') is None
+    assert observe(pg, 'feeding') is None
     with Session(pg) as session:
-        event = EmotionEvent(user_id=1, emotion='배고픔', confidence=.95, need='feeding')
-        session.add(event)
-        session.flush()
-        rid = str(uuid4())
-        first = enqueue_notification(session, event, rid, {'emotion': event.emotion})
-        session.flush()
-        assert enqueue_notification(session, event, rid, {}) is first
-        assert enqueue_notification(session, event, str(uuid4()), {}) is None  # cooldown
+        event = EmotionEvent(user_id=1, emotion='feeding', confidence=.1, need='feeding')
+        session.add(event); session.flush()
+        result = enqueue_notification(session, event, str(uuid4()), {})
+        assert result is not None
         session.rollback()
     with Session(pg) as session:
         assert not session.exec(select(NotificationEvent)).all()
-        assert not session.exec(select(EmotionEvent)).all()
-        low = EmotionEvent(user_id=1, emotion='배고픔', confidence=.2, need='feeding')
-        assert enqueue_notification(session, low, str(uuid4()), {}) is None
-        stable = EmotionEvent(user_id=1, emotion='안정', confidence=.99, need='stable')
-        assert enqueue_notification(session, stable, str(uuid4()), {}) is None
+        assert len(session.exec(select(NotificationObservation)).all()) == 2
+    assert observe(pg, 'feeding') is not None
 
 
 def test_concurrent_dispatchers_send_once(pg, push_enabled, monkeypatch):

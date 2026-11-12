@@ -1,4 +1,4 @@
-﻿from datetime import datetime
+from datetime import datetime
 from typing import Any, Optional
 
 from sqlalchemy import Column, JSON, UniqueConstraint
@@ -187,6 +187,7 @@ class NotificationEvent(SQLModel, table=True):
     created_at: datetime = Field(default_factory=kst_now)
     expires_at: datetime
     available_at: datetime = Field(default_factory=kst_now, index=True)
+    read_at: Optional[datetime] = None
 
 
 class PushDelivery(SQLModel, table=True):
@@ -202,3 +203,20 @@ class PushDelivery(SQLModel, table=True):
     next_attempt_at: datetime = Field(default_factory=kst_now, index=True)
     error_code: Optional[str] = Field(default=None, max_length=100)
     message_id: Optional[str] = Field(default=None, max_length=255)
+
+
+class NotificationPreference(SQLModel, table=True):
+    __tablename__ = "notification_preferences"
+    user_id: int = Field(foreign_key="app_users.id", primary_key=True)
+    enabled: bool = False
+    enabled_at: datetime = Field(default_factory=kst_now)
+
+
+class NotificationObservation(SQLModel, table=True):
+    __tablename__ = "notification_observations"
+    id: Optional[int] = Field(default=None, primary_key=True)
+    request_id: str = Field(unique=True, max_length=36)
+    user_id: int = Field(foreign_key="app_users.id", index=True)
+    camera_key: int = 0
+    state: str = Field(max_length=100)
+    created_at: datetime = Field(default_factory=kst_now)

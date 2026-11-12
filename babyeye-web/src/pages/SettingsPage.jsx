@@ -1,4 +1,5 @@
-﻿import { User, Camera, Bell, Shield, ChevronRight } from 'lucide-react'
+import { User, Camera, Bell, Shield, ChevronRight } from 'lucide-react'
+import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'
 import Card from '../components/common/Card'
 import Header from '../components/common/Header'
@@ -15,7 +16,7 @@ const sections = [
     title: '기기 설정',
     items: [
       { icon: Camera, label: '카메라 설정', description: '연결된 카메라 및 화질 설정' },
-      { icon: Bell, label: '알림 설정', description: '울음, 보챔, 움직임 감지 알림' },
+      { icon: Bell, label: '알림 설정', description: '활성화 · 알림 목록 · 확인', path: '/notifications' },
       { icon: Shield, label: '개인정보 보호', description: '영상 저장 및 데이터 보안 설정' },
     ],
   },
@@ -23,6 +24,7 @@ const sections = [
 
 function SettingsPage() {
   const { user, logout } = useAuth()
+  const navigate = useNavigate()
   return (
     <main className='px-5 py-6'>
       <Header title='설정' subtitle='서비스 및 기기 설정 관리' />
@@ -52,6 +54,7 @@ function SettingsPage() {
                 return (
                   <button
                     key={item.label}
+                    onClick={() => item.path && navigate(item.path)}
                     type='button'
                     className='flex w-full items-center justify-between rounded-2xl bg-slate-800/70 p-4 text-left'
                   >
