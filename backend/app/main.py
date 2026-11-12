@@ -1,7 +1,7 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.routers import push
+from app.routers import push, reviews
 from app.config import get_settings
 from app.database import create_db_and_tables
 from app.routers import alerts, cameras, dashboard, emotions, environment, smart_home, inference, live, auth, feedback
@@ -65,3 +65,4 @@ app.include_router(live.router, prefix="/api/live", tags=["live"])
 app.include_router(feedback.router, prefix="/api/feedback", tags=["feedback"])
 
 app.include_router(push.router, prefix="/api/push", tags=["push"])
+app.include_router(reviews.router, prefix="/api/reviews", tags=["reviews"])

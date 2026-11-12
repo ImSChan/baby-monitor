@@ -21,6 +21,8 @@ def detection_state(event):
 
 def enqueue_notification(session, event, request_id, result):
     lock_notification_user(session, event.user_id)
+    from app.services.review_service import index_analysis
+    index_analysis(session, event, request_id, result)
     preference = session.get(NotificationPreference, event.user_id)
     if not preference or not preference.enabled:
         return None

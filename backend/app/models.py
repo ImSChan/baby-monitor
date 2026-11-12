@@ -25,6 +25,7 @@ class InferenceFeedback(SQLModel, table=True):
         index=True,
         max_length=36,
     )
+    learning_group: Optional[str] = Field(default=None, max_length=36, index=True)
 
     emotion_event_id: Optional[int] = Field(
         default=None,
@@ -222,4 +223,37 @@ class NotificationObservation(SQLModel, table=True):
     user_id: int = Field(foreign_key="app_users.id", index=True)
     camera_key: int = 0
     state: str = Field(max_length=100)
+    created_at: datetime = Field(default_factory=kst_now)
+
+
+class ReviewAnalysis(SQLModel, table=True):
+    __tablename__ = "review_analyses"
+    id: Optional[int] = Field(default=None, primary_key=True)
+    request_id: str = Field(unique=True, max_length=36)
+    user_id: int = Field(foreign_key="app_users.id", index=True)
+    emotion_event_id: int = Field(foreign_key="emotion_events.id")
+    camera_key: int = 0
+    state: str = Field(max_length=100)
+    episode_key: str = Field(max_length=36, index=True)
+    result: dict = Field(sa_column=Column(JSON, nullable=False))
+    captured_at: datetime = Field(index=True)
+
+
+class ReviewSchedule(SQLModel, table=True):
+    __tablename__ = "review_schedules"
+    user_id: int = Field(foreign_key="app_users.id", primary_key=True)
+    enabled: bool = False
+    first_time: str = Field(default="10:00", max_length=5)
+    timezone: str = Field(default="Asia/Seoul", max_length=100)
+    enabled_at: datetime = Field(default_factory=kst_now)
+
+
+class ReviewAction(SQLModel, table=True):
+    __tablename__ = "review_actions"
+    id: str = Field(primary_key=True, max_length=36)
+    user_id: int = Field(foreign_key="app_users.id", index=True)
+    payload_hash: str = Field(max_length=64)
+    # Before/after versions support atomic undo and optimistic concurrency.
+    changes: list[dict] = Field(sa_column=Column(JSON, nullable=False))
+    undone: bool = False
     created_at: datetime = Field(default_factory=kst_now)

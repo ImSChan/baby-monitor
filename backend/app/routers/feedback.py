@@ -8,7 +8,7 @@ from sqlmodel import Session, select
 
 from app.database import get_session
 from app.deps import get_current_user_id
-from app.models import EmotionEvent, InferenceFeedback
+from app.models import EmotionEvent, InferenceFeedback, ReviewAnalysis
 from app.routers.inference import get_owned_request_metadata
 from app.utils.time import kst_now
 
@@ -90,6 +90,7 @@ def serialize_feedback(
         "id": feedback.id,
         "user_id": feedback.user_id,
         "request_id": feedback.request_id,
+        "learning_group": feedback.learning_group,
         "emotion_event_id": feedback.emotion_event_id,
         "predicted_label": feedback.predicted_label,
         "corrected_label": feedback.corrected_label,
@@ -239,6 +240,10 @@ def create_feedback(
         comment=payload.comment,
         training_status=training_status,
     )
+
+    analysis = session.exec(select(ReviewAnalysis).where(ReviewAnalysis.request_id == payload.request_id,
+        ReviewAnalysis.user_id == current_user_id)).first()
+    feedback.learning_group = analysis.episode_key if analysis else None
 
     session.add(feedback)
 

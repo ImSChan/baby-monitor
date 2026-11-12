@@ -28,9 +28,12 @@ def pg():
     engine = create_engine(url, connect_args={'options': f'-csearch_path={schema}'})
     try:
         baseline = [t for t in SQLModel.metadata.sorted_tables
-                    if t.name not in {'push_devices', 'notification_events', 'push_deliveries', 'notification_preferences', 'notification_observations'}]
+                    if t.name not in {'push_devices', 'notification_events', 'push_deliveries', 'notification_preferences', 'notification_observations',
+                                      'review_analyses', 'review_schedules', 'review_actions'}]
         SQLModel.metadata.create_all(engine, tables=baseline)
-        migrations = [(Path(__file__).parents[1] / 'migrations' / name).read_text(encoding='utf-8') for name in ['001_push.sql', '002_notification_inbox.sql']]
+        with engine.begin() as connection:
+            connection.execute(text('ALTER TABLE inference_feedback DROP COLUMN learning_group'))
+        migrations = [(Path(__file__).parents[1] / 'migrations' / name).read_text(encoding='utf-8') for name in ['001_push.sql', '002_notification_inbox.sql', '003_training_eligibility.sql', '004_feedback_review.sql']]
         # psycopg2 runs the explicit BEGIN/COMMIT migration exactly as psql does.
         for _ in range(2):
             raw = engine.raw_connection()

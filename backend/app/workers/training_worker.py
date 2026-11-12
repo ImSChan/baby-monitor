@@ -11,7 +11,7 @@ from sqlalchemy import text
 from sqlmodel import Session, select
 from app.database import engine
 from app.models import AppUser, InferenceFeedback, TrainingJob, TrainingJobFeedback
-from app.services.training_data_service import genuine_user, load_feedback_sample
+from app.services.training_data_service import genuine_user, load_feedback_sample, learning_cohorts
 from app.services.training_policy import TrainingPolicy, entries, normalize_feedback_label
 
 logger = logging.getLogger("training-worker")
@@ -40,9 +40,16 @@ def initialize_storage():
 
 def select_batch(candidates, modality, policy):
     buckets = defaultdict(list)
+    seen = set()
     for feedback, sample in candidates:
         items, labels = entries([sample], modality, policy.stable_vision_as_normal)
         if items:
+            cohort = sample.get('learning_cohort', feedback.learning_group)
+            group = (cohort, sample['label']) if cohort else None
+            if group and group in seen:
+                continue
+            if group:
+                seen.add(group)
             buckets[labels[items[0][2]]].append((feedback, sample))
     qualified = [label for label in sorted(buckets) if len(buckets[label]) >= policy.min_per_class]
     if len(qualified) < 2:
@@ -80,11 +87,19 @@ def scan_and_create_jobs(db_engine=None):
             .with_for_update(skip_locked=True)).all()
         groups = defaultdict(list)
         users = {}
+        cohorts = learning_cohorts(session)
+        used_groups = {(row.user_id, cohorts.get(row.id), normalize_feedback_label(row.corrected_label))
+            for row in session.exec(select(InferenceFeedback).where(
+                InferenceFeedback.learning_group != None,
+                InferenceFeedback.id.in_(select(TrainingJobFeedback.feedback_id)))).all()}
         for feedback in pending:
             if feedback.user_id not in users:
                 users[feedback.user_id] = genuine_user(session.get(AppUser, feedback.user_id))
             sample = check_sample(feedback) if users[feedback.user_id] else None
             if sample is not None:
+                sample['learning_cohort'] = cohorts.get(feedback.id)
+                if sample['learning_cohort'] and (feedback.user_id, sample['learning_cohort'], sample['label']) in used_groups:
+                    continue
                 groups[feedback.user_id].append((feedback, sample))
         for user_id, candidates in sorted(groups.items()):
             # Current maps are disjoint; removing selected IDs also prevents reuse
@@ -101,6 +116,8 @@ def scan_and_create_jobs(db_engine=None):
                     session.add(job)
                     session.flush()
                     ids = {feedback.id for feedback, _ in selected}
+                    selected_groups = {(sample.get('learning_cohort'), sample['label']) for feedback, sample in selected
+                                       if sample.get('learning_cohort')}
                     for feedback, _ in selected:
                         feedback.training_status = "reserved"
                         session.add(feedback)
@@ -109,7 +126,8 @@ def scan_and_create_jobs(db_engine=None):
                         "modalities": [modality], "training_policy": policy.snapshot(),
                         "samples": [{key: value for key, value in sample.items() if key not in {"audio", "vision"}}
                                     for _, sample in selected]})
-                    remaining = [pair for pair in remaining if pair[0].id not in ids]
+                    remaining = [pair for pair in remaining if pair[0].id not in ids
+                        and (pair[1].get('learning_cohort'), pair[1]['label']) not in selected_groups]
         session.commit()
     for job in created:
         write_manifest(job)

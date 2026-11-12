@@ -26,7 +26,7 @@ it('opens an alert and confirms it without submitting feedback', async () => {
   </Routes></MemoryRouter>)
   fireEvent.click(await screen.findByText('배고픔 감지'))
   await screen.findByText('상태 알림 확인')
-  fireEvent.click(screen.getByRole('button', { name: '확인 완료' }))
+  fireEvent.click(screen.getByRole('button', { name: '알림 확인 완료' }))
   await screen.findByText('최근 알림')
   expect(mocks.post).toHaveBeenCalledExactlyOnceWith('/api/push/events/4/read', {})
   expect(mocks.post.mock.calls.some(([path]) => path.includes('feedback'))).toBe(false)

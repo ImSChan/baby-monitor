@@ -5,13 +5,45 @@ import uuid
 from pathlib import Path
 from sqlmodel import Session, select
 from app.database import engine
-from app.models import AppUser, TrainingJob, TrainingJobFeedback, InferenceFeedback
+from app.models import AppUser, TrainingJob, TrainingJobFeedback, InferenceFeedback, ReviewAction
 from app.services.training_policy import normalize_feedback_label
 
 ROOT = Path(os.getenv("INFERENCE_DATA_DIR", "/app/uploads/inference")).resolve()
 MOCK_KEYS = {"synthetic", "mock", "is_mock", "test_data", "is_synthetic"}
 AUDIO_SUFFIXES = {".wav", ".mp3", ".m4a", ".aac", ".ogg", ".flac", ".webm", ".mp4", ".opus"}
 IMAGE_SUFFIXES = {".jpg", ".jpeg", ".png", ".webp", ".bmp", ".gif", ".tif", ".tiff"}
+
+
+def learning_cohorts(session):
+    """Union adjacent episode samples AND explicit bulk selections.
+
+    A single bulk label over several predicted-state episodes is still one
+    observation, not several independent observations. Keep links across scans.
+    Legacy ungrouped feedback remains untouched.
+    """
+    parent = {}
+
+    def find(key):
+        parent.setdefault(key, key)
+        while parent[key] != key:
+            parent[key] = parent[parent[key]]
+            key = parent[key]
+        return key
+
+    def union(left, right):
+        a, b = find(left), find(right)
+        parent[max(a, b)] = min(a, b)
+
+    rows = session.exec(select(InferenceFeedback).where(InferenceFeedback.learning_group != None)).all()
+    nodes = {(row.user_id, row.id): f'f:{row.user_id}:{row.id}' for row in rows}
+    for row in rows:
+        union(nodes[(row.user_id, row.id)], f'e:{row.user_id}:{row.learning_group}')
+    for action in session.exec(select(ReviewAction).where(ReviewAction.undone == False)).all():
+        members = [nodes[(action.user_id, change['id'])] for change in action.changes
+                   if (action.user_id, change['id']) in nodes]
+        for member in members[1:]:
+            union(members[0], member)
+    return {fid: find(node) for (_, fid), node in nodes.items()}
 
 
 def genuine_user(user):
@@ -88,6 +120,7 @@ def load_feedback_sample(feedback, root=ROOT, expected_status="pending"):
     if audio is None and vision is None:
         raise ValueError("No usable media file inside the request directory")
     return {"id": rid, "request_id": rid, "feedback_id": feedback.id,
+            "learning_group": feedback.learning_group,
             "user_id": feedback.user_id, "label": label, "feedback_type": feedback.feedback_type,
             "audio": audio, "vision": vision,
             "files": [str(path) for path in (audio, vision) if path]}
@@ -114,9 +147,17 @@ def get_rows(job_id, user_id, *, root=None, db_engine=None):
         if len(links) != job.sample_count:
             raise ValueError("Job sample count mismatch")
         rows = []
+        seen_groups = set()
+        cohorts = learning_cohorts(session)
         for link in links:
             feedback = session.get(InferenceFeedback, link.feedback_id)
             if not feedback or feedback.user_id != user_id:
                 raise ValueError("Feedback ownership mismatch")
-            rows.append(load_feedback_sample(feedback, root or ROOT, "reserved"))
+            sample = load_feedback_sample(feedback, root or ROOT, "reserved")
+            cohort = cohorts.get(feedback.id)
+            key = (cohort, sample['label'])
+            if cohort and key in seen_groups:
+                raise ValueError('Duplicate episode in training job')
+            seen_groups.add(key)
+            rows.append(sample)
         return rows

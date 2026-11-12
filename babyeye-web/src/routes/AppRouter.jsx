@@ -9,6 +9,7 @@ import {
 
 import NotificationsPage from '../pages/NotificationsPage'
 import NotificationResultPage from '../pages/NotificationResultPage'
+import ReviewPage from '../pages/ReviewPage'
 import { useAuth } from '../contexts/AuthContext'
 
 import CameraHostPage from '../pages/CameraHostPage'
@@ -52,6 +53,7 @@ function AppRouter() {
         <Route path="/smart-home" element={<SmartHomePage />} />
         <Route path="/settings" element={<SettingsPage />} />
         <Route path="/notifications" element={<NotificationsPage />} />
+        <Route path="/reviews" element={<ReviewPage />} />
         <Route path="/notifications/:eventId" element={<NotificationResultPage />} />
         <Route path="/feedback" element={<FeedbackPage />} />
       </Route>
