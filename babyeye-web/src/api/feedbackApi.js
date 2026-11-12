@@ -46,6 +46,7 @@ export async function updateFeedback(feedbackId, data) {
   )
 
   if (!response.ok) {
+    if (response.status === 401 && token) window.dispatchEvent(new Event('babyeye:unauthorized'))
     let message = `피드백 수정 실패 (${response.status})`
 
     try {

@@ -66,7 +66,7 @@ function formatConfidence(value) {
   return `${percentage.toFixed(1)}%`
 }
 
-function FeedbackCard({ item, feedback, onSaved }) {
+export function FeedbackCard({ item, feedback, onSaved }) {
   const [expanded, setExpanded] = useState(false)
   const [type, setType] = useState('correct')
   const [label, setLabel] = useState('')

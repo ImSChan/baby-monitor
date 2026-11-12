@@ -1,0 +1,21 @@
+# Opt-in overlay. Never stores credentials in the repository.
+services:
+  notification-worker:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      GOOGLE_APPLICATION_CREDENTIALS: /run/secrets/firebase-admin.json
+    depends_on:
+      db:
+        condition: service_healthy
+    volumes:
+      - ./backend/uploads:/app/uploads:ro
+      - type: bind
+        source: ${FIREBASE_CREDENTIALS_FILE:?Set FIREBASE_CREDENTIALS_FILE outside the repository}
+        target: /run/secrets/firebase-admin.json
+        read_only: true
+    command: python -m app.workers.notification_worker

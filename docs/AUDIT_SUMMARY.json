@@ -1,0 +1,91 @@
+{
+  "command": "npm audit --json",
+  "counts": {
+    "info": 0,
+    "low": 1,
+    "moderate": 7,
+    "high": 5,
+    "critical": 0,
+    "total": 13
+  },
+  "packages": [
+    {
+      "name": "@babel/core",
+      "severity": "low",
+      "direct": false,
+      "fixAvailable": true
+    },
+    {
+      "name": "@remix-run/router",
+      "severity": "moderate",
+      "direct": false,
+      "fixAvailable": true
+    },
+    {
+      "name": "@vitest/mocker",
+      "severity": "moderate",
+      "direct": false,
+      "fixAvailable": true
+    },
+    {
+      "name": "baseline-browser-mapping",
+      "severity": "moderate",
+      "direct": false,
+      "fixAvailable": true
+    },
+    {
+      "name": "browserslist",
+      "severity": "high",
+      "direct": false,
+      "fixAvailable": true
+    },
+    {
+      "name": "nanoid",
+      "severity": "high",
+      "direct": false,
+      "fixAvailable": true
+    },
+    {
+      "name": "postcss",
+      "severity": "high",
+      "direct": true,
+      "fixAvailable": true
+    },
+    {
+      "name": "postcss-selector-parser",
+      "severity": "moderate",
+      "direct": false,
+      "fixAvailable": true
+    },
+    {
+      "name": "react-router",
+      "severity": "moderate",
+      "direct": false,
+      "fixAvailable": true
+    },
+    {
+      "name": "react-router-dom",
+      "severity": "moderate",
+      "direct": true,
+      "fixAvailable": true
+    },
+    {
+      "name": "source-map-js",
+      "severity": "high",
+      "direct": false,
+      "fixAvailable": true
+    },
+    {
+      "name": "vite",
+      "severity": "high",
+      "direct": true,
+      "fixAvailable": true
+    },
+    {
+      "name": "vitest",
+      "severity": "moderate",
+      "direct": true,
+      "fixAvailable": true
+    }
+  ]
+}

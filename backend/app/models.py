@@ -1,7 +1,7 @@
 ﻿from datetime import datetime
 from typing import Any, Optional
 
-from sqlalchemy import Column, JSON
+from sqlalchemy import Column, JSON, UniqueConstraint
 from sqlmodel import Field, SQLModel
 
 from app.utils.time import kst_now
@@ -163,3 +163,42 @@ class DeviceState(SQLModel, table=True):
     status: str = "off"
     description: Optional[str] = None
     updated_at: datetime = Field(default_factory=kst_now)
+
+
+class PushDevice(SQLModel, table=True):
+    __tablename__ = "push_devices"
+    id: Optional[int] = Field(default=None, primary_key=True)
+    user_id: int = Field(foreign_key="app_users.id", index=True)
+    token: str = Field(unique=True, max_length=4096)
+    installation_id: str = Field(unique=True, max_length=36)
+    platform: str = Field(default="android", max_length=20)
+    active: bool = True
+    updated_at: datetime = Field(default_factory=kst_now)
+
+
+class NotificationEvent(SQLModel, table=True):
+    __tablename__ = "notification_events"
+    id: Optional[int] = Field(default=None, primary_key=True)
+    user_id: int = Field(foreign_key="app_users.id", index=True)
+    request_id: str = Field(unique=True, max_length=36)
+    emotion_event_id: int = Field(foreign_key="emotion_events.id")
+    result: dict = Field(sa_column=Column(JSON, nullable=False))
+    status: str = Field(default="pending", max_length=20, index=True)
+    created_at: datetime = Field(default_factory=kst_now)
+    expires_at: datetime
+    available_at: datetime = Field(default_factory=kst_now, index=True)
+
+
+class PushDelivery(SQLModel, table=True):
+    __tablename__ = "push_deliveries"
+    # Unique event/device pair is also enforced in the migration.
+    __table_args__ = (UniqueConstraint('event_id', 'device_id'),)
+    id: Optional[int] = Field(default=None, primary_key=True)
+    event_id: int = Field(foreign_key="notification_events.id", index=True)
+    device_id: int = Field(foreign_key="push_devices.id")
+    token: str = Field(max_length=4096)
+    status: str = Field(default="pending", max_length=20, index=True)
+    attempts: int = 0
+    next_attempt_at: datetime = Field(default_factory=kst_now, index=True)
+    error_code: Optional[str] = Field(default=None, max_length=100)
+    message_id: Optional[str] = Field(default=None, max_length=255)

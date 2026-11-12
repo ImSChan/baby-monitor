@@ -25,6 +25,7 @@ async function request(path, options = {}) {
   })
 
   if (!response.ok) {
+    if (response.status === 401 && token) window.dispatchEvent(new Event('babyeye:unauthorized'))
     const message = await safeReadError(response)
     const error = new Error(
       message || `API 요청 실패: ${response.status}`

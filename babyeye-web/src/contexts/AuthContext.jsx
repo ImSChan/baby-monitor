@@ -13,6 +13,8 @@ import {
   clearAccessToken,
 } from '../api/authToken'
 
+import { revokePush } from '../services/pushService'
+
 const AuthContext = createContext(null)
 
 export function AuthProvider({ children }) {
@@ -55,6 +57,12 @@ export function AuthProvider({ children }) {
     }
   }, [])
 
+  useEffect(() => {
+    const expire = () => { clearAccessToken(); setUser(null) }
+    window.addEventListener('babyeye:unauthorized', expire)
+    return () => window.removeEventListener('babyeye:unauthorized', expire)
+  }, [])
+
   async function login(email, password) {
     const result = await apiPost('/api/auth/login', {
       email,
@@ -74,14 +82,20 @@ export function AuthProvider({ children }) {
     }
   }
 
-  function logout() {
+  function expireSession() {
+    clearAccessToken()
+    setUser(null)
+  }
+
+  async function logout() {
+    await revokePush()
     clearAccessToken()
     setUser(null)
   }
 
   return (
     <AuthContext.Provider
-      value={{ user, loading, login, logout }}
+      value={{ user, loading, login, logout, expireSession }}
     >
       {children}
     </AuthContext.Provider>

@@ -1,11 +1,14 @@
 
 import { useState } from 'react'
-import { Navigate, useNavigate } from 'react-router-dom'
+import { Navigate, useNavigate, useLocation } from 'react-router-dom'
 import { Baby, LogIn } from 'lucide-react'
+import { safeReturnPath } from '../utils/pushRoute'
 import { useAuth } from '../contexts/AuthContext'
 
 export default function LoginPage() {
   const navigate = useNavigate()
+  const location = useLocation()
+  const returnTo = safeReturnPath(location.state?.from)
   const { user, login } = useAuth()
 
   const [email, setEmail] = useState('')
@@ -14,7 +17,7 @@ export default function LoginPage() {
   const [submitting, setSubmitting] = useState(false)
 
   if (user) {
-    return <Navigate to="/" replace />
+    return <Navigate to={returnTo} replace />
   }
 
   async function handleSubmit(event) {
@@ -24,7 +27,7 @@ export default function LoginPage() {
 
     try {
       await login(email.trim(), password)
-      navigate('/', { replace: true })
+      navigate(returnTo, { replace: true })
     } catch (err) {
       setError(
         err.status === 401

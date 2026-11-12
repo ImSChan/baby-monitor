@@ -1,6 +1,7 @@
 ﻿
 import { BrowserRouter } from 'react-router-dom'
 
+import PushCenter from './components/common/PushCenter'
 import AppRouter from './routes/AppRouter'
 import BottomNav from './components/common/BottomNav'
 import { AuthProvider, useAuth } from './contexts/AuthContext'
@@ -15,6 +16,7 @@ function AppLayout() {
           user ? 'pb-24' : ''
         }`}
       >
+        <PushCenter />
         <AppRouter />
       </div>
 

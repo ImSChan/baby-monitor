@@ -4,8 +4,10 @@ import {
   Outlet,
   Route,
   Routes,
+  useLocation,
 } from 'react-router-dom'
 
+import NotificationResultPage from '../pages/NotificationResultPage'
 import { useAuth } from '../contexts/AuthContext'
 
 import CameraHostPage from '../pages/CameraHostPage'
@@ -19,6 +21,7 @@ import FeedbackPage from '../pages/FeedbackPage'
 
 function ProtectedRoute() {
   const { user, loading } = useAuth()
+  const location = useLocation()
 
   if (loading) {
     return (
@@ -29,7 +32,7 @@ function ProtectedRoute() {
   }
 
   if (!user) {
-    return <Navigate to="/login" replace />
+    return <Navigate to="/login" state={{ from: location.pathname + location.search }} replace />
   }
 
   return <Outlet />
@@ -47,6 +50,7 @@ function AppRouter() {
         <Route path="/emotion" element={<EmotionPage />} />
         <Route path="/smart-home" element={<SmartHomePage />} />
         <Route path="/settings" element={<SettingsPage />} />
+        <Route path="/notifications/:eventId" element={<NotificationResultPage />} />
         <Route path="/feedback" element={<FeedbackPage />} />
       </Route>
 

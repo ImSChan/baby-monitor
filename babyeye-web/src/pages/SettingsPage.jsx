@@ -81,7 +81,7 @@ function SettingsPage() {
 
         <button
           type="button"
-          onClick={logout}
+          onClick={() => logout().catch(() => window.alert('푸시 기기 해제에 실패했습니다. 네트워크 연결 후 로그아웃을 다시 시도해주세요.'))}
           className="w-full rounded-xl bg-red-600/20 py-3 text-sm font-semibold text-red-300"
         >
           로그아웃

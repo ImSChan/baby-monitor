@@ -9,6 +9,7 @@ from app.utils.metadata_io import atomic_write_metadata
 
 from app.database import engine
 from app.models import EmotionEvent
+from app.services.notification_service import enqueue_notification
 from app.services.audio_preprocess_service import convert_audio_to_wav
 from app.services.inference_queue_service import (
     pop_inference_job,
@@ -95,7 +96,7 @@ def process_job(job: dict):
             )
 
             session.add(event)
-            session.commit()
+            session.flush()
             session.refresh(event)
 
             result_payload = {
@@ -130,6 +131,9 @@ def process_job(job: dict):
                     "audioMetrics": inference_result.get("audioMetrics"),
                 },
             }
+
+            enqueue_notification(session, event, request_id, result_payload["result"])
+            session.commit()
 
         metadata["status"] = "completed"
         metadata["status_message"] = "분석이 완료되었습니다."

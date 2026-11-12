@@ -43,3 +43,15 @@ Thumbs.db
 
 # Personalized model checkpoints
 /backend/weights/users/
+# Firebase credentials / local Android configuration
+/secrets/
+**/firebase-admin*.json
+**/*service-account*.json
+**/google-services.json
+**/local.properties
+**/.gradle/
+**/build/
+
+/work-test-venv/
+/work-*.py
+/.pytest_cache/
