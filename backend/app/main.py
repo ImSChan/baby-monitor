@@ -33,6 +33,11 @@ def on_startup():
     create_db_and_tables()
 
 
+@app.on_event("shutdown")
+async def shutdown_live_sessions():
+    await live.live_session_manager.shutdown()
+
+
 @app.get("/")
 def root():
     return {

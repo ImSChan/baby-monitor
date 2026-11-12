@@ -1,4 +1,4 @@
-﻿
+
 import { getAccessToken } from './authToken'
 
 const API_BASE_URL = (
@@ -25,7 +25,7 @@ async function request(path, options = {}) {
   })
 
   if (!response.ok) {
-    if (response.status === 401 && token) window.dispatchEvent(new Event('babyeye:unauthorized'))
+    if (response.status === 401 && token && token === getAccessToken()) window.dispatchEvent(new Event('babyeye:unauthorized'))
     const message = await safeReadError(response)
     const error = new Error(
       message || `API 요청 실패: ${response.status}`
@@ -41,14 +41,16 @@ async function request(path, options = {}) {
   return response.json()
 }
 
-export function apiGet(path) {
+export function apiGet(path, options = {}) {
   return request(path, {
+    ...options,
     method: 'GET',
   })
 }
 
-export function apiPost(path, body) {
+export function apiPost(path, body, options = {}) {
   return request(path, {
+    ...options,
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -57,8 +59,9 @@ export function apiPost(path, body) {
   })
 }
 
-export function apiPostFormData(path, formData) {
+export function apiPostFormData(path, formData, options = {}) {
   return request(path, {
+    ...options,
     method: 'POST',
     body: formData,
   })

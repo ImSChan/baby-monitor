@@ -1,4 +1,4 @@
-﻿import { apiGet, apiPostFormData } from './client'
+import { apiGet, apiPostFormData } from './client'
 
 export function requestMultimodalInference({
   audioFile,
@@ -10,6 +10,7 @@ export function requestMultimodalInference({
   audioRmsDbfs,
   audioPeakDbfs,
   quietAudio,
+  signal,
 }) {
   const formData = new FormData()
 
@@ -49,15 +50,15 @@ export function requestMultimodalInference({
     formData.append('quiet_audio', quietAudio ? 'true' : 'false')
   }
 
-  return apiPostFormData('/api/inference/multimodal', formData)
+  return apiPostFormData('/api/inference/multimodal', formData, { signal })
 }
 
-export function getInferenceStatus(requestId) {
-  return apiGet('/api/inference/requests/' + requestId + '/status')
+export function getInferenceStatus(requestId, options = {}) {
+  return apiGet('/api/inference/requests/' + requestId + '/status', options)
 }
 
-export function getInferenceResult(requestId) {
-  return apiGet('/api/inference/requests/' + requestId + '/result')
+export function getInferenceResult(requestId, options = {}) {
+  return apiGet('/api/inference/requests/' + requestId + '/result', options)
 }
 
 export function getInferenceMetadata(requestId) {

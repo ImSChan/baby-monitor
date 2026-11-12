@@ -5,7 +5,11 @@ import Card from '../components/common/Card'
 import Header from '../components/common/Header'
 import StatusBadge from '../components/common/StatusBadge'
 import { createCamera, getCameras } from '../api/cameraApi'
-import { buildLiveWebSocketUrl, getLiveSessions } from '../api/liveApi'
+import { getLiveSessions } from '../api/liveApi'
+import { useLiveViewer } from '../hooks/useLiveConnection'
+import { useAuth } from '../contexts/AuthContext'
+import { getAccessToken } from '../api/authToken'
+import { Link } from 'react-router-dom'
 
 const initialForm = {
   name: '',
@@ -16,24 +20,17 @@ const initialForm = {
   analysis_enabled: true,
 }
 
-const peerConfig = {
-  iceServers: [
-    { urls: 'stun:stun.l.google.com:19302' },
-  ],
-}
-
 function LivePage() {
   const remoteVideoRef = useRef(null)
-  const socketRef = useRef(null)
-  const peerRef = useRef(null)
+  const { user } = useAuth()
+  const { selectedSession, connecting, receiving, status: liveStatus, error: liveError,
+    start: connectToSession, stop: stopViewer } = useLiveViewer(remoteVideoRef)
+  const pageEpochRef = useRef(0)
 
   const [cameras, setCameras] = useState([])
   const [sessions, setSessions] = useState([])
-  const [selectedSession, setSelectedSession] = useState(null)
 
   const [loading, setLoading] = useState(true)
-  const [connecting, setConnecting] = useState(false)
-  const [liveStatus, setLiveStatus] = useState('대기 중')
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState(null)
   const [formError, setFormError] = useState(null)
@@ -41,6 +38,8 @@ function LivePage() {
   const [form, setForm] = useState(initialForm)
 
   useEffect(() => {
+    pageEpochRef.current++
+    setSessions([]); setCameras([])
     loadPageData()
 
     const timer = setInterval(() => {
@@ -48,12 +47,13 @@ function LivePage() {
     }, 5000)
 
     return () => {
+      pageEpochRef.current++
       clearInterval(timer)
-      stopViewer()
     }
-  }, [])
+  }, [user?.id])
 
   async function loadPageData() {
+    const token = getAccessToken(), epoch = pageEpochRef.current
     try {
       setLoading(true)
       setError(null)
@@ -63,21 +63,23 @@ function LivePage() {
         getLiveSessions(),
       ])
 
+      if (epoch !== pageEpochRef.current || token !== getAccessToken()) return
       setCameras(cameraResult || [])
-      setSessions(sessionResult || [])
+      if (epoch === pageEpochRef.current && token === getAccessToken()) { setSessions(sessionResult || []); setError(null) }
     } catch (err) {
-      setError(err)
+      if (epoch === pageEpochRef.current && token === getAccessToken()) setError(err)
     } finally {
-      setLoading(false)
+      if (epoch === pageEpochRef.current) setLoading(false)
     }
   }
 
   async function loadSessionsOnly() {
+    const token = getAccessToken(), epoch = pageEpochRef.current
     try {
       const sessionResult = await getLiveSessions()
-      setSessions(sessionResult || [])
-    } catch {
-      // ignore polling error
+      if (epoch === pageEpochRef.current && token === getAccessToken()) { setSessions(sessionResult || []); setError(null) }
+    } catch (err) {
+      if (epoch === pageEpochRef.current && token === getAccessToken()) { setSessions([]); setError(err) }
     }
   }
 
@@ -121,129 +123,10 @@ function LivePage() {
     }
   }
 
-  async function connectToSession(session) {
-    try {
-      stopViewer()
-
-      setSelectedSession(session)
-      setConnecting(true)
-      setLiveStatus('라이브 세션에 연결하는 중입니다...')
-
-      const peer = new RTCPeerConnection(peerConfig)
-      peerRef.current = peer
-
-      peer.ontrack = (event) => {
-        const [stream] = event.streams
-
-        if (remoteVideoRef.current) {
-          remoteVideoRef.current.srcObject = stream
-        }
-
-        setLiveStatus('실시간 영상 수신 중입니다.')
-      }
-
-      peer.onicecandidate = (event) => {
-        if (event.candidate && socketRef.current?.readyState === WebSocket.OPEN) {
-          socketRef.current.send(JSON.stringify({
-            type: 'candidate',
-            candidate: event.candidate,
-          }))
-        }
-      }
-
-      peer.onconnectionstatechange = () => {
-        if (peer.connectionState === 'connected') {
-          setLiveStatus('P2P 라이브 연결 완료')
-        }
-
-        if (peer.connectionState === 'failed') {
-          setLiveStatus('P2P 연결 실패. TURN 서버가 필요할 수 있습니다.')
-        }
-
-        if (peer.connectionState === 'disconnected') {
-          setLiveStatus('라이브 연결이 일시적으로 끊겼습니다.')
-        }
-      }
-
-      const wsUrl = buildLiveWebSocketUrl(session.sessionId, 'viewer')
-      const socket = new WebSocket(wsUrl)
-      socketRef.current = socket
-
-      socket.onopen = () => {
-        setConnecting(false)
-        setLiveStatus('홈캠에 연결 요청을 보냈습니다.')
-        socket.send(JSON.stringify({ type: 'viewer-ready' }))
-      }
-
-      socket.onmessage = async (event) => {
-        const message = JSON.parse(event.data)
-
-        if (message.type === 'offer') {
-          await peer.setRemoteDescription(new RTCSessionDescription(message.offer))
-
-          const answer = await peer.createAnswer()
-          await peer.setLocalDescription(answer)
-
-          socket.send(JSON.stringify({
-            type: 'answer',
-            answer,
-          }))
-
-          setLiveStatus('라이브 응답을 전송했습니다.')
-          return
-        }
-
-        if (message.type === 'candidate') {
-          if (message.candidate) {
-            await peer.addIceCandidate(new RTCIceCandidate(message.candidate))
-          }
-          return
-        }
-
-        if (message.type === 'host-disconnected') {
-          setLiveStatus('홈캠 연결이 종료되었습니다.')
-          stopViewer(false)
-        }
-      }
-
-      socket.onerror = () => {
-        setConnecting(false)
-        setLiveStatus('WebSocket 연결 오류가 발생했습니다.')
-      }
-
-      socket.onclose = () => {
-        setConnecting(false)
-      }
-    } catch (err) {
-      setConnecting(false)
-      setLiveStatus(err.message || '라이브 연결 중 오류가 발생했습니다.')
-    }
-  }
-
-  function stopViewer(clearSession = true) {
-    if (peerRef.current) {
-      peerRef.current.close()
-      peerRef.current = null
-    }
-
-    if (socketRef.current) {
-      socketRef.current.close()
-      socketRef.current = null
-    }
-
-    if (remoteVideoRef.current) {
-      remoteVideoRef.current.srcObject = null
-    }
-
-    if (clearSession) {
-      setSelectedSession(null)
-    }
-  }
-
   if (loading) {
     return (
       <main className='px-5 py-6'>
-        <Header title='라이브 피드' subtitle='실시간 카메라 화면 확인' />
+        <Header title='라이브 피드' subtitle='같은 계정의 홈캠 화면 확인' />
         <Card>
           <p className='text-sm text-slate-300'>카메라 정보를 불러오는 중입니다...</p>
         </Card>
@@ -251,13 +134,14 @@ function LivePage() {
     )
   }
 
-  if (error) {
+  if (error && !selectedSession && !cameras.length && !sessions.length) {
     return (
       <main className='px-5 py-6'>
         <Header title='라이브 피드' subtitle='실시간 카메라 화면 확인' />
         <Card>
           <p className='font-semibold text-rose-300'>카메라 정보를 불러오지 못했습니다.</p>
           <p className='mt-2 text-sm text-slate-400'>{error.message}</p>
+          <button onClick={loadPageData} className='mt-3 text-blue-300'>다시 불러오기</button>
         </Card>
       </main>
     )
@@ -269,6 +153,9 @@ function LivePage() {
     <main className='px-5 py-6'>
       <Header title='라이브 피드' subtitle='실시간 카메라 화면 확인' />
 
+      {error && <p role='alert' className='mb-3 text-sm text-rose-300'>{error.message}</p>}
+      <p role='status' className='mb-3 text-sm text-slate-400'>{liveStatus}</p>
+      {liveError && <p role='alert' className='mb-3 text-sm text-rose-300'>{liveError}</p>}
       <section className='mb-5 overflow-hidden rounded-[32px] border border-slate-700/70 bg-slate-900 shadow-card'>
         <div className='relative flex h-72 items-center justify-center bg-black'>
           <video
@@ -294,7 +181,7 @@ function LivePage() {
           {selectedSession && (
             <>
               <div className='absolute left-4 top-4'>
-                <StatusBadge type='normal'>LIVE</StatusBadge>
+                <StatusBadge type={receiving ? 'normal' : 'warning'}>{receiving ? 'LIVE' : '연결 중'}</StatusBadge>
               </div>
 
               <div className='absolute bottom-4 left-4 right-4 rounded-2xl bg-black/50 p-3 text-xs text-slate-200'>
@@ -308,7 +195,7 @@ function LivePage() {
       <Card className='mb-5'>
         <div className='mb-4 flex items-center justify-between'>
           <div>
-            <h2 className='text-lg font-bold'>휴대폰 홈캠 PoC</h2>
+            <h2 className='text-lg font-bold'>휴대폰 홈캠</h2>
             <p className='mt-1 text-sm text-slate-400'>
               휴대폰에서 Camera Host 화면을 열고 홈캠을 시작하세요.
             </p>
@@ -316,13 +203,13 @@ function LivePage() {
           <Smartphone size={24} className='text-blue-300' />
         </div>
 
-        <a
-          href='/camera-host'
+        <Link
+          to='/camera-host'
           className='flex w-full items-center justify-center gap-2 rounded-2xl bg-blue-500 py-3 text-sm font-bold text-white transition hover:bg-blue-400'
         >
           <Radio size={18} />
           이 기기를 홈캠으로 사용하기
-        </a>
+        </Link>
 
         <p className='mt-3 text-xs leading-5 text-slate-500'>
           휴대폰에서는 위 버튼을 눌러 홈캠 모드를 시작하고, 노트북에서는 아래 세션 목록에서 실시간 피드를 확인합니다.
@@ -343,7 +230,7 @@ function LivePage() {
 
         {sessions.length === 0 ? (
           <p className='text-sm text-slate-400'>
-            현재 온라인 홈캠 세션이 없습니다.
+            같은 계정으로 시작한 온라인 홈캠이 없습니다.
           </p>
         ) : (
           <div className='space-y-3'>

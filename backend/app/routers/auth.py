@@ -68,10 +68,7 @@ def create_access_token(user_id: int) -> str:
     )
 
 
-def get_current_user(
-    credentials: HTTPAuthorizationCredentials = Depends(security),
-    session: Session = Depends(get_session),
-) -> AppUser:
+def authenticate_access_token(token: str, session: Session) -> tuple[AppUser, float]:
     unauthorized = HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
         detail="Invalid or expired authentication token",
@@ -80,11 +77,13 @@ def get_current_user(
 
     try:
         payload = jwt.decode(
-            credentials.credentials,
+            token,
             get_secret_key(),
             algorithms=[JWT_ALGORITHM],
+            options={"require": ["sub", "exp"]},
         )
         user_id = int(payload["sub"])
+        expires_at = float(payload["exp"])
     except (jwt.PyJWTError, KeyError, TypeError, ValueError):
         raise unauthorized
 
@@ -92,7 +91,14 @@ def get_current_user(
     if user is None or not user.is_active:
         raise unauthorized
 
-    return user
+    return user, expires_at
+
+
+def get_current_user(
+    credentials: HTTPAuthorizationCredentials = Depends(security),
+    session: Session = Depends(get_session),
+) -> AppUser:
+    return authenticate_access_token(credentials.credentials, session)[0]
 
 
 @router.post("/register", response_model=UserResponse, status_code=201)

@@ -4,6 +4,7 @@ import {
   useContext,
   useEffect,
   useState,
+  useRef,
 } from 'react'
 
 import { apiGet, apiPost } from '../api/client'
@@ -13,11 +14,13 @@ import {
   clearAccessToken,
 } from '../api/authToken'
 
+import { stopAllLiveResources } from '../services/liveResources'
 import { revokePush } from '../services/pushService'
 
 const AuthContext = createContext(null)
 
 export function AuthProvider({ children }) {
+  const authEpoch = useRef(0)
   const [user, setUser] = useState(null)
   const [loading, setLoading] = useState(true)
 
@@ -25,6 +28,7 @@ export function AuthProvider({ children }) {
     let active = true
 
     async function restoreSession() {
+      const epoch = authEpoch.current, token = getAccessToken()
       if (!getAccessToken()) {
         setLoading(false)
         return
@@ -33,11 +37,11 @@ export function AuthProvider({ children }) {
       try {
         const currentUser = await apiGet('/api/auth/me')
 
-        if (active) {
+        if (active && epoch === authEpoch.current && token === getAccessToken()) {
           setUser(currentUser)
         }
       } catch (error) {
-        if (active) {
+        if (active && epoch === authEpoch.current && token === getAccessToken()) {
           if (error.status === 401 || error.status === 403) {
             clearAccessToken()
           }
@@ -58,39 +62,49 @@ export function AuthProvider({ children }) {
   }, [])
 
   useEffect(() => {
-    const expire = () => { clearAccessToken(); setUser(null) }
+    const expire = () => expireSession()
     window.addEventListener('babyeye:unauthorized', expire)
     return () => window.removeEventListener('babyeye:unauthorized', expire)
   }, [])
 
   async function login(email, password) {
+    const epoch = ++authEpoch.current
     const result = await apiPost('/api/auth/login', {
       email,
       password,
     })
 
+    if (epoch !== authEpoch.current) throw new DOMException('Login superseded', 'AbortError')
     setAccessToken(result.access_token)
 
     try {
       const currentUser = await apiGet('/api/auth/me')
+      if (epoch !== authEpoch.current || getAccessToken() !== result.access_token) throw new DOMException('Login superseded', 'AbortError')
       setUser(currentUser)
       return currentUser
     } catch (error) {
-      clearAccessToken()
-      setUser(null)
+      if (epoch === authEpoch.current && getAccessToken() === result.access_token) {
+        clearAccessToken()
+        setUser(null)
+      }
       throw error
     }
   }
 
   function expireSession() {
+    authEpoch.current++
     clearAccessToken()
     setUser(null)
   }
 
   async function logout() {
+    const epoch = ++authEpoch.current, token = getAccessToken()
+    stopAllLiveResources()
     await revokePush()
-    clearAccessToken()
-    setUser(null)
+    if (epoch === authEpoch.current && getAccessToken() === token) {
+      clearAccessToken()
+      setUser(null)
+    }
   }
 
   return (

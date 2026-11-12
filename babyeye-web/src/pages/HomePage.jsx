@@ -24,22 +24,23 @@ import {
   requestMultimodalInference,
 } from '../api/inferenceApi'
 import {
-  buildLiveWebSocketUrl,
   getLiveSessions,
 } from '../api/liveApi'
+import { useLiveViewer } from '../hooks/useLiveConnection'
+import { useAuth } from '../contexts/AuthContext'
+import { getAccessToken } from '../api/authToken'
+import { registerLiveCleanup } from '../services/liveResources'
+import { abortableDelay, throwIfAborted } from '../utils/abort'
 import { preprocessVideoForInference } from '../utils/videoPreprocess'
-
-const peerConfig = {
-  iceServers: [
-    { urls: 'stun:stun.l.google.com:19302' },
-  ],
-}
 
 function HomePage() {
   const fileInputRef = useRef(null)
   const remoteVideoRef = useRef(null)
-  const socketRef = useRef(null)
-  const peerRef = useRef(null)
+  const { user } = useAuth()
+  const { selectedSession, receiving, status: liveStatus, error: liveError, connecting: liveConnecting,
+    start: connectToLiveSession, stop: stopLiveViewer } = useLiveViewer(remoteVideoRef)
+  const pageEpochRef = useRef(0)
+  const uploadAbortRef = useRef(null)
 
   const [dashboardData, setDashboardData] = useState(null)
   const [initialLoading, setInitialLoading] = useState(true)
@@ -52,12 +53,11 @@ function HomePage() {
   const [analysisResult, setAnalysisResult] = useState(null)
 
   const [liveSessions, setLiveSessions] = useState([])
-  const [selectedSession, setSelectedSession] = useState(null)
-  const [liveStatus, setLiveStatus] = useState('라이브 세션 대기 중')
-  const [liveError, setLiveError] = useState('')
-  const [liveConnecting, setLiveConnecting] = useState(false)
 
   useEffect(() => {
+    pageEpochRef.current++
+    setLiveSessions([]); setDashboardData(null); setAnalysisResult(null)
+    const unregister = registerLiveCleanup(() => uploadAbortRef.current?.abort())
     loadDashboard({ initial: true })
     loadLiveSessions()
 
@@ -66,10 +66,12 @@ function HomePage() {
     }, 5000)
 
     return () => {
+      pageEpochRef.current++
+      unregister()
+      uploadAbortRef.current?.abort()
       window.clearInterval(sessionTimer)
-      stopLiveViewer()
     }
-  }, [])
+  }, [user?.id])
 
   useEffect(() => {
     if (!selectedSession) {
@@ -88,6 +90,7 @@ function HomePage() {
   }, [selectedSession])
 
   async function loadDashboard(options = {}) {
+    const token = getAccessToken(), epoch = pageEpochRef.current
     try {
       if (options.initial) {
         setInitialLoading(true)
@@ -96,158 +99,23 @@ function HomePage() {
       }
 
       const result = await getDashboard()
+      if (epoch !== pageEpochRef.current || token !== getAccessToken()) return
       setDashboardData(result)
       setDashboardError(null)
     } catch (err) {
-      setDashboardError(err)
+      if (epoch === pageEpochRef.current && token === getAccessToken()) setDashboardError(err)
     } finally {
-      setInitialLoading(false)
-      setRefreshingDashboard(false)
+      if (epoch === pageEpochRef.current) { setInitialLoading(false); setRefreshingDashboard(false) }
     }
   }
 
   async function loadLiveSessions() {
+    const token = getAccessToken(), epoch = pageEpochRef.current
     try {
       const sessions = await getLiveSessions()
-      setLiveSessions(sessions || [])
+      if (epoch === pageEpochRef.current && token === getAccessToken()) setLiveSessions(sessions || [])
     } catch {
-      // 홈 화면 전체 오류로 처리하지 않음
-    }
-  }
-
-  async function connectToLiveSession(session) {
-    try {
-      stopLiveViewer(false)
-
-      setLiveError('')
-      setLiveConnecting(true)
-      setSelectedSession(session)
-      setLiveStatus('라이브 세션에 연결하는 중입니다...')
-
-      const peer = new RTCPeerConnection(peerConfig)
-      peerRef.current = peer
-
-      peer.ontrack = (event) => {
-        const [stream] = event.streams
-        const video = remoteVideoRef.current
-
-        if (video && stream) {
-          video.srcObject = stream
-          video.muted = true
-          video.playsInline = true
-
-          video.play().catch(() => {
-            setLiveStatus('영상 스트림은 수신했지만 자동 재생이 차단되었습니다.')
-          })
-        }
-
-        setLiveStatus('실시간 영상 스트림 수신 중입니다.')
-      }
-
-      peer.onicecandidate = (event) => {
-        if (event.candidate && socketRef.current?.readyState === WebSocket.OPEN) {
-          socketRef.current.send(JSON.stringify({
-            type: 'candidate',
-            candidate: event.candidate,
-          }))
-        }
-      }
-
-      peer.onconnectionstatechange = () => {
-        if (peer.connectionState === 'connected') {
-          setLiveStatus('P2P 라이브 연결 완료')
-        }
-
-        if (peer.connectionState === 'failed') {
-          setLiveStatus('P2P 연결 실패')
-        }
-
-        if (peer.connectionState === 'disconnected') {
-          setLiveStatus('라이브 연결이 일시적으로 끊겼습니다.')
-        }
-
-        if (peer.connectionState === 'closed') {
-          setLiveStatus('라이브 연결이 종료되었습니다.')
-        }
-      }
-
-      const wsUrl = buildLiveWebSocketUrl(session.sessionId, 'viewer')
-      const socket = new WebSocket(wsUrl)
-      socketRef.current = socket
-
-      socket.onopen = () => {
-        setLiveConnecting(false)
-        setLiveStatus('홈캠에 연결 요청을 보냈습니다.')
-        socket.send(JSON.stringify({ type: 'viewer-ready' }))
-      }
-
-      socket.onmessage = async (event) => {
-        const message = JSON.parse(event.data)
-
-        if (message.type === 'offer') {
-          await peer.setRemoteDescription(new RTCSessionDescription(message.offer))
-
-          const answer = await peer.createAnswer()
-          await peer.setLocalDescription(answer)
-
-          socket.send(JSON.stringify({
-            type: 'answer',
-            answer,
-          }))
-
-          setLiveStatus('라이브 응답을 전송했습니다.')
-          return
-        }
-
-        if (message.type === 'candidate') {
-          if (message.candidate) {
-            await peer.addIceCandidate(new RTCIceCandidate(message.candidate))
-          }
-          return
-        }
-
-        if (message.type === 'host-disconnected') {
-          setLiveStatus('홈캠 연결이 종료되었습니다.')
-          stopLiveViewer(false)
-        }
-      }
-
-      socket.onerror = () => {
-        setLiveConnecting(false)
-        setLiveError('WebSocket 연결 중 오류가 발생했습니다.')
-        setLiveStatus('라이브 연결 실패')
-      }
-
-      socket.onclose = () => {
-        setLiveConnecting(false)
-      }
-    } catch (err) {
-      setLiveConnecting(false)
-      setLiveError(err.message || '라이브 연결 중 오류가 발생했습니다.')
-      setLiveStatus('라이브 연결 실패')
-    }
-  }
-
-  function stopLiveViewer(clearSession = true) {
-    if (peerRef.current) {
-      peerRef.current.close()
-      peerRef.current = null
-    }
-
-    if (socketRef.current) {
-      socketRef.current.close()
-      socketRef.current = null
-    }
-
-    if (remoteVideoRef.current) {
-      remoteVideoRef.current.srcObject = null
-    }
-
-    if (clearSession) {
-      setSelectedSession(null)
-      setLiveStatus('라이브 세션 대기 중')
-      setLiveError('')
-      loadDashboard({ silent: true })
+      if (epoch === pageEpochRef.current && token === getAccessToken()) setLiveSessions([])
     }
   }
 
@@ -258,6 +126,10 @@ function HomePage() {
       return
     }
 
+    uploadAbortRef.current?.abort()
+    const controller = new AbortController(), token = getAccessToken()
+    uploadAbortRef.current = controller
+    const signal = controller.signal
     try {
       setUploading(true)
       setUploadMessage('영상 전처리를 시작합니다...')
@@ -268,9 +140,11 @@ function HomePage() {
         framesPerSecond: 1,
         maxFrames: 20,
         maxWidth: 640,
-        onProgress: setUploadMessage,
+        onProgress: message => { if (!signal.aborted) setUploadMessage(message) },
       })
 
+      throwIfAborted(signal)
+      if (token !== getAccessToken()) return
       if (preprocessed.frameFiles.length === 0 && !preprocessed.audioFile) {
         throw new Error('분석할 프레임 또는 오디오를 추출하지 못했습니다.')
       }
@@ -296,8 +170,10 @@ function HomePage() {
         audioRmsDbfs: preprocessed.audioMetrics?.rmsDbfs,
         audioPeakDbfs: preprocessed.audioMetrics?.peakDbfs,
         quietAudio: preprocessed.audioMetrics?.quietAudio,
+        signal,
       })
 
+      throwIfAborted(signal)
       const requestId = queued.requestId
 
       if (!requestId) {
@@ -307,9 +183,11 @@ function HomePage() {
       setUploadMessage('분석 작업이 등록되었습니다. 작업 처리 상태를 확인하는 중입니다...')
 
       const completedResult = await waitForInferenceCompleted(requestId, {
-        onProgress: setUploadMessage,
+        signal,
+        onProgress: message => { if (!signal.aborted) setUploadMessage(message) },
       })
 
+      throwIfAborted(signal)
       setAnalysisResult({
         ...completedResult.result,
         requestId,
@@ -319,13 +197,11 @@ function HomePage() {
       setUploadMessage('영상 분석이 완료되었습니다.')
       await loadDashboard({ silent: true })
     } catch (err) {
-      setUploadError(err.message || '영상 분석 요청 중 오류가 발생했습니다.')
-      setUploadMessage('')
+      if (!signal.aborted) { setUploadError(err.message || '영상 분석 요청 중 오류가 발생했습니다.'); setUploadMessage('') }
     } finally {
-      setUploading(false)
-
-      if (fileInputRef.current) {
-        fileInputRef.current.value = ''
+      if (uploadAbortRef.current === controller) {
+        setUploading(false)
+        if (fileInputRef.current) fileInputRef.current.value = ''
       }
     }
   }
@@ -380,7 +256,7 @@ function HomePage() {
 
               <div className='absolute left-4 top-4'>
                 <StatusBadge type={selectedSession ? 'normal' : liveSessions.length > 0 ? 'normal' : 'warning'}>
-                  {selectedSession ? 'LIVE' : liveSessions.length > 0 ? 'READY' : 'OFFLINE'}
+                  {selectedSession ? (receiving ? 'LIVE' : 'CONNECTING') : liveSessions.length > 0 ? 'READY' : 'OFFLINE'}
                 </StatusBadge>
               </div>
 
@@ -396,7 +272,7 @@ function HomePage() {
                 <div>
                   <p className='text-sm text-slate-400'>아기 방 카메라</p>
                   <h2 className='mt-1 text-2xl font-bold'>
-                    {selectedSession ? '실시간 모니터링 중' : '라이브 피드 대기'}
+                    {selectedSession ? (receiving ? '실시간 모니터링 중' : '영상 연결 중') : '라이브 피드 대기'}
                   </h2>
                 </div>
 
@@ -704,15 +580,17 @@ function getTopPredictions(result) {
 
 async function waitForInferenceCompleted(requestId, options = {}) {
   const onProgress = options.onProgress || (() => {})
+  const signal = options.signal
   const maxAttempts = options.maxAttempts || 60
   const intervalMs = options.intervalMs || 2000
 
   for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
-    const status = await getInferenceStatus(requestId)
+    throwIfAborted(signal)
+    const status = await getInferenceStatus(requestId, { signal })
 
     if (status.status === 'completed') {
       onProgress('분석이 완료되어 결과를 불러오는 중입니다...')
-      return getInferenceResult(requestId)
+      return getInferenceResult(requestId, { signal })
     }
 
     if (status.status === 'failed') {
@@ -725,7 +603,7 @@ async function waitForInferenceCompleted(requestId, options = {}) {
       onProgress('분석 대기열에서 순서를 기다리는 중입니다...')
     }
 
-    await sleep(intervalMs)
+    await abortableDelay(intervalMs, signal)
   }
 
   throw new Error('분석 작업 시간이 초과되었습니다.')

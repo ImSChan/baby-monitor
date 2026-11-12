@@ -3,18 +3,13 @@ import { Activity, Camera, Radio, Square, Video } from 'lucide-react'
 
 import Card from '../components/common/Card'
 import Header from '../components/common/Header'
-import { buildLiveWebSocketUrl, createLiveSession } from '../api/liveApi'
+import { useLiveHost } from '../hooks/useLiveConnection'
+import { abortableDelay, throwIfAborted } from '../utils/abort'
 import {
   getInferenceResult,
   getInferenceStatus,
   requestMultimodalInference,
 } from '../api/inferenceApi'
-
-const peerConfig = {
-  iceServers: [
-    { urls: 'stun:stun.l.google.com:19302' },
-  ],
-}
 
 const ANALYSIS_INTERVAL_MS = 5000
 const AUDIO_SAMPLE_RATE = 16000
@@ -23,17 +18,13 @@ const QUIET_PEAK_DBFS_THRESHOLD = -20
 
 function CameraHostPage() {
   const videoRef = useRef(null)
-  const streamRef = useRef(null)
-  const socketRef = useRef(null)
-  const peerRef = useRef(null)
+  const { streamRef, sessionId, status, error, isStreaming, isStarting,
+    start: startHomeCam, stop: stopHost } = useLiveHost(videoRef)
+  const analysisEpochRef = useRef(0)
+  const analysisAbortRef = useRef(null)
   const analysisTimerRef = useRef(null)
   const analysisRunningRef = useRef(false)
   const stopRequestedRef = useRef(false)
-
-  const [sessionId, setSessionId] = useState('')
-  const [status, setStatus] = useState('idle')
-  const [error, setError] = useState('')
-  const [isStreaming, setIsStreaming] = useState(false)
 
   const [analysisEnabled, setAnalysisEnabled] = useState(true)
   const [analysisStatus, setAnalysisStatus] = useState('분석 대기 중')
@@ -42,151 +33,10 @@ function CameraHostPage() {
   const [latestAudioMetrics, setLatestAudioMetrics] = useState(null)
 
   useEffect(() => {
-    return () => {
-      stopStreaming()
-    }
-  }, [])
-
-  async function startHomeCam() {
-    try {
-      setError('')
-      setStatus('카메라 권한을 요청하는 중입니다...')
-
-      const mediaStream = await navigator.mediaDevices.getUserMedia({
-        video: {
-          facingMode: 'environment',
-          width: { ideal: 1280 },
-          height: { ideal: 720 },
-        },
-        audio: true,
-      })
-
-      streamRef.current = mediaStream
-
-      if (videoRef.current) {
-        videoRef.current.srcObject = mediaStream
-      }
-
-      setStatus('라이브 세션을 생성하는 중입니다...')
-
-      const session = await createLiveSession({
-        camera_name: '휴대폰 홈캠',
-      })
-
-      setSessionId(session.sessionId)
-
-      const wsUrl = buildLiveWebSocketUrl(session.sessionId, 'host')
-      const socket = new WebSocket(wsUrl)
-      socketRef.current = socket
-
-      socket.onopen = () => {
-        setStatus('홈캠이 시작되었습니다. 시청자 연결을 기다리는 중입니다.')
-        setIsStreaming(true)
-        stopRequestedRef.current = false
-
-        if (analysisEnabled) {
-          startRealtimeAnalysisLoop()
-        }
-      }
-
-      socket.onmessage = async (event) => {
-        const message = JSON.parse(event.data)
-
-        if (message.type === 'viewer-connected' || message.type === 'viewer-ready') {
-          await createOfferForViewer()
-          return
-        }
-
-        if (message.type === 'answer') {
-          if (peerRef.current) {
-            await peerRef.current.setRemoteDescription(
-              new RTCSessionDescription(message.answer)
-            )
-            setStatus('시청자와 연결되었습니다.')
-          }
-          return
-        }
-
-        if (message.type === 'candidate') {
-          if (peerRef.current && message.candidate) {
-            await peerRef.current.addIceCandidate(
-              new RTCIceCandidate(message.candidate)
-            )
-          }
-          return
-        }
-
-        if (message.type === 'viewer-disconnected') {
-          setStatus('시청자 연결이 종료되었습니다. 다시 연결을 기다리는 중입니다.')
-          closePeer()
-        }
-      }
-
-      socket.onerror = () => {
-        setError('WebSocket 연결 중 오류가 발생했습니다.')
-        setStatus('라이브 세션 연결에 실패했습니다.')
-      }
-
-      socket.onclose = () => {
-        stopRealtimeAnalysisLoop()
-
-        if (isStreaming) {
-          setStatus('라이브 세션 연결이 종료되었습니다.')
-        }
-      }
-    } catch (err) {
-      setError(err.message || '홈캠 시작 중 오류가 발생했습니다.')
-      setStatus('idle')
-      stopStreaming()
-    }
-  }
-
-  async function createOfferForViewer() {
-    if (!streamRef.current || !socketRef.current) {
-      return
-    }
-
-    closePeer()
-
-    const peer = new RTCPeerConnection(peerConfig)
-    peerRef.current = peer
-
-    streamRef.current.getTracks().forEach((track) => {
-      peer.addTrack(track, streamRef.current)
-    })
-
-    peer.onicecandidate = (event) => {
-      if (event.candidate && socketRef.current?.readyState === WebSocket.OPEN) {
-        socketRef.current.send(JSON.stringify({
-          type: 'candidate',
-          candidate: event.candidate,
-        }))
-      }
-    }
-
-    peer.onconnectionstatechange = () => {
-      if (peer.connectionState === 'connected') {
-        setStatus('시청자와 P2P 라이브 연결이 완료되었습니다.')
-      }
-
-      if (
-        peer.connectionState === 'failed' ||
-        peer.connectionState === 'disconnected'
-      ) {
-        setStatus('P2P 연결이 끊겼습니다. 시청자 재연결을 기다립니다.')
-      }
-    }
-
-    const offer = await peer.createOffer()
-    await peer.setLocalDescription(offer)
-
-    socketRef.current.send(JSON.stringify({
-      type: 'offer',
-      offer,
-    }))
-
-    setStatus('시청자에게 라이브 연결 요청을 보냈습니다.')
-  }
+    if (isStreaming && analysisEnabled) startRealtimeAnalysisLoop()
+    else stopRealtimeAnalysisLoop()
+    return () => stopRealtimeAnalysisLoop()
+  }, [isStreaming, analysisEnabled])
 
   function startRealtimeAnalysisLoop() {
     if (analysisTimerRef.current) {
@@ -204,6 +54,9 @@ function CameraHostPage() {
   }
 
   function stopRealtimeAnalysisLoop() {
+    analysisEpochRef.current++
+    analysisAbortRef.current?.abort()
+    analysisAbortRef.current = null
     stopRequestedRef.current = true
     analysisRunningRef.current = false
 
@@ -228,15 +81,20 @@ function CameraHostPage() {
       return
     }
 
+    const run = analysisEpochRef.current
+    const controller = new AbortController()
+    analysisAbortRef.current = controller
+    const signal = controller.signal
     try {
       analysisRunningRef.current = true
       setAnalysisStatus('5초 오디오와 현재 프레임을 수집하는 중입니다...')
 
       const [audioPayload, frameFile] = await Promise.all([
-        recordAudioClipAsWav(streamRef.current, ANALYSIS_INTERVAL_MS),
+        recordAudioClipAsWav(streamRef.current, ANALYSIS_INTERVAL_MS, signal),
         captureCurrentFrame(),
       ])
 
+      throwIfAborted(signal)
       const audioFile = audioPayload?.audioFile || null
       const audioMetrics = audioPayload?.metrics || null
 
@@ -262,85 +120,61 @@ function CameraHostPage() {
         audioRmsDbfs: audioMetrics?.rmsDbfs,
         audioPeakDbfs: audioMetrics?.peakDbfs,
         quietAudio: audioMetrics?.quietAudio,
+        signal,
       })
 
+      throwIfAborted(signal)
       if (!queued.requestId) {
         throw new Error('분석 requestId가 없습니다.')
       }
 
       setAnalysisStatus('AI 분석 작업 처리 중입니다...')
 
-      const completed = await waitForInferenceCompleted(queued.requestId)
+      const completed = await waitForInferenceCompleted(queued.requestId, signal)
+      throwIfAborted(signal)
 
       setLatestAnalysis(completed.result)
       setAnalysisCount((prev) => prev + 1)
       setAnalysisStatus('최근 분석 완료: ' + toUserFriendlyEmotion(completed.result?.emotion))
     } catch (err) {
-      setAnalysisStatus(err.message || '실시간 분석 요청 중 오류가 발생했습니다.')
+      if (!signal.aborted && run === analysisEpochRef.current) setAnalysisStatus(err.message || '실시간 분석 요청 중 오류가 발생했습니다.')
     } finally {
-      analysisRunningRef.current = false
+      if (run === analysisEpochRef.current) {
+        analysisRunningRef.current = false
+        analysisAbortRef.current = null
+      }
     }
   }
 
-  async function recordAudioClipAsWav(mediaStream, durationMs) {
+  async function recordAudioClipAsWav(mediaStream, durationMs, signal) {
+    throwIfAborted(signal)
     const audioTracks = mediaStream.getAudioTracks()
-
-    if (!audioTracks || audioTracks.length === 0) {
-      return null
-    }
-
     const AudioContextClass = window.AudioContext || window.webkitAudioContext
-
-    if (!AudioContextClass) {
-      return null
-    }
-
-    const audioContext = new AudioContextClass()
-    await audioContext.resume().catch(() => {})
-
-    const source = audioContext.createMediaStreamSource(new MediaStream(audioTracks))
-    const processor = audioContext.createScriptProcessor(4096, 1, 1)
+    if (!audioTracks.length || !AudioContextClass) return null
+    const context = new AudioContextClass()
+    let source, processor
     const chunks = []
-
-    processor.onaudioprocess = (event) => {
-      const input = event.inputBuffer.getChannelData(0)
-      chunks.push(new Float32Array(input))
-    }
-
-    source.connect(processor)
-    processor.connect(audioContext.destination)
-
-    await sleep(durationMs)
-
+    const sampleRate = context.sampleRate
     try {
-      processor.disconnect()
-      source.disconnect()
-    } catch {
-      // ignore
+      void context.resume().catch(() => {})
+      throwIfAborted(signal)
+      source = context.createMediaStreamSource(new MediaStream(audioTracks))
+      processor = context.createScriptProcessor(4096, 1, 1)
+      processor.onaudioprocess = event => chunks.push(new Float32Array(event.inputBuffer.getChannelData(0)))
+      source.connect(processor)
+      processor.connect(context.destination)
+      await abortableDelay(durationMs, signal)
+    } finally {
+      if (processor) { processor.onaudioprocess = null; processor.disconnect() }
+      source?.disconnect()
+      await context.close().catch(() => {})
     }
-
-    const originalSampleRate = audioContext.sampleRate
-    await audioContext.close().catch(() => {})
-
-    if (chunks.length === 0) {
-      return null
-    }
-
-    const merged = mergeFloat32Arrays(chunks)
-    const resampled = resampleFloat32(merged, originalSampleRate, AUDIO_SAMPLE_RATE)
-    const wavBuffer = encodeWav(resampled, AUDIO_SAMPLE_RATE)
-    const wavBlob = new Blob([wavBuffer], { type: 'audio/wav' })
-
-    const audioFile = new File(
-      [wavBlob],
-      'live_audio_' + Date.now() + '.wav',
-      { type: 'audio/wav' }
-    )
-
-    return {
-      audioFile,
-      metrics: calculateDbfsMetrics(resampled),
-    }
+    throwIfAborted(signal)
+    if (!chunks.length) return null
+    const resampled = resampleFloat32(mergeFloat32Arrays(chunks), sampleRate, AUDIO_SAMPLE_RATE)
+    const file = new File([new Blob([encodeWav(resampled, AUDIO_SAMPLE_RATE)], { type: 'audio/wav' })],
+      'live_audio_' + Date.now() + '.wav', { type: 'audio/wav' })
+    return { audioFile: file, metrics: calculateDbfsMetrics(resampled) }
   }
 
   async function captureCurrentFrame() {
@@ -380,34 +214,9 @@ function CameraHostPage() {
     )
   }
 
-  function closePeer() {
-    if (peerRef.current) {
-      peerRef.current.close()
-      peerRef.current = null
-    }
-  }
-
   function stopStreaming() {
     stopRealtimeAnalysisLoop()
-    closePeer()
-
-    if (socketRef.current) {
-      socketRef.current.close()
-      socketRef.current = null
-    }
-
-    if (streamRef.current) {
-      streamRef.current.getTracks().forEach((track) => track.stop())
-      streamRef.current = null
-    }
-
-    if (videoRef.current) {
-      videoRef.current.srcObject = null
-    }
-
-    setIsStreaming(false)
-    setSessionId('')
-    setStatus('idle')
+    stopHost()
   }
 
   return (
@@ -477,11 +286,7 @@ function CameraHostPage() {
                   const checked = event.target.checked
                   setAnalysisEnabled(checked)
 
-                  if (!checked) {
-                    stopRealtimeAnalysisLoop()
-                  } else if (isStreaming && streamRef.current) {
-                    startRealtimeAnalysisLoop()
-                  }
+
                 }}
                 className='h-5 w-5'
               />
@@ -490,11 +295,11 @@ function CameraHostPage() {
 
           <button
             type='button'
-            onClick={isStreaming ? stopStreaming : startHomeCam}
+            onClick={isStreaming || isStarting ? stopStreaming : startHomeCam}
             className='mt-4 flex w-full items-center justify-center gap-2 rounded-2xl bg-blue-500 py-3 text-sm font-bold text-white transition hover:bg-blue-400'
           >
-            {isStreaming ? <Square size={18} /> : <Video size={18} />}
-            {isStreaming ? '홈캠 중지' : '홈캠 시작하기'}
+            {isStreaming || isStarting ? <Square size={18} /> : <Video size={18} />}
+            {isStarting ? '홈캠 시작 취소' : isStreaming ? '홈캠 중지' : '홈캠 시작하기'}
           </button>
         </div>
       </section>
@@ -565,22 +370,23 @@ function CameraHostPage() {
   )
 }
 
-async function waitForInferenceCompleted(requestId) {
+async function waitForInferenceCompleted(requestId, signal) {
   const maxAttempts = 30
   const intervalMs = 1000
 
   for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
-    const status = await getInferenceStatus(requestId)
+    throwIfAborted(signal)
+    const status = await getInferenceStatus(requestId, { signal })
 
     if (status.status === 'completed') {
-      return getInferenceResult(requestId)
+      return getInferenceResult(requestId, { signal })
     }
 
     if (status.status === 'failed') {
       throw new Error(status.message || '분석 작업이 실패했습니다.')
     }
 
-    await sleep(intervalMs)
+    await abortableDelay(intervalMs, signal)
   }
 
   throw new Error('분석 작업 시간이 초과되었습니다.')
