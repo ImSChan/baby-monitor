@@ -17,7 +17,6 @@ import EmotionPage from '../pages/EmotionPage'
 import HomePage from '../pages/HomePage'
 import LivePage from '../pages/LivePage'
 import SettingsPage from '../pages/SettingsPage'
-import SmartHomePage from '../pages/SmartHomePage'
 import LoginPage from '../pages/LoginPage'
 import FeedbackPage from '../pages/FeedbackPage'
 
@@ -50,7 +49,6 @@ function AppRouter() {
         <Route path="/live" element={<LivePage />} />
         <Route path="/camera-host" element={<CameraHostPage />} />
         <Route path="/emotion" element={<EmotionPage />} />
-        <Route path="/smart-home" element={<SmartHomePage />} />
         <Route path="/settings" element={<SettingsPage />} />
         <Route path="/notifications" element={<NotificationsPage />} />
         <Route path="/reviews" element={<ReviewPage />} />

@@ -1,7 +1,7 @@
 ﻿from sqlmodel import Session, select
 
 from app.database import create_db_and_tables, engine
-from app.models import Alert, AppUser, Camera, DeviceState, EmotionEvent, EnvironmentState
+from app.models import Alert, AppUser, Camera, EmotionEvent
 
 
 def seed():
@@ -60,41 +60,11 @@ def seed():
         )
 
         session.add(
-            EnvironmentState(
-                user_id=user.id,
-                temperature=24.0,
-                humidity=45.0,
-                light="적정",
-                air_quality="좋음",
-            )
-        )
-
-        session.add(
             Alert(
                 user_id=user.id,
                 level="normal",
                 title="수면 상태 안정",
                 message="특이 상황 없이 안정적인 수면 상태입니다.",
-            )
-        )
-
-        session.add(
-            DeviceState(
-                user_id=user.id,
-                name="수면 조명",
-                type="light",
-                status="on",
-                description="은은한 밝기로 켜짐",
-            )
-        )
-
-        session.add(
-            DeviceState(
-                user_id=user.id,
-                name="가습기",
-                type="humidifier",
-                status="on",
-                description="습도 유지 중",
             )
         )
 

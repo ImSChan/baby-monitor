@@ -145,30 +145,6 @@ class Alert(SQLModel, table=True):
     created_at: datetime = Field(default_factory=kst_now)
 
 
-class EnvironmentState(SQLModel, table=True):
-    __tablename__ = "environment_states"
-
-    id: Optional[int] = Field(default=None, primary_key=True)
-    user_id: int = Field(foreign_key="app_users.id", index=True)
-    temperature: float
-    humidity: float
-    light: str = "적정"
-    air_quality: str = "좋음"
-    created_at: datetime = Field(default_factory=kst_now)
-
-
-class DeviceState(SQLModel, table=True):
-    __tablename__ = "device_states"
-
-    id: Optional[int] = Field(default=None, primary_key=True)
-    user_id: int = Field(foreign_key="app_users.id", index=True)
-    name: str
-    type: str
-    status: str = "off"
-    description: Optional[str] = None
-    updated_at: datetime = Field(default_factory=kst_now)
-
-
 class PushDevice(SQLModel, table=True):
     __tablename__ = "push_devices"
     id: Optional[int] = Field(default=None, primary_key=True)

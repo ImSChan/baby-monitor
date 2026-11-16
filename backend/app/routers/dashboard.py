@@ -3,7 +3,7 @@ from sqlmodel import Session, select
 
 from app.database import get_session
 from app.deps import get_current_user_id
-from app.models import Alert, Camera, EmotionEvent, EnvironmentState
+from app.models import Alert, Camera, EmotionEvent
 
 router = APIRouter()
 
@@ -17,12 +17,6 @@ def get_dashboard(
         select(EmotionEvent)
         .where(EmotionEvent.user_id == current_user_id)
         .order_by(EmotionEvent.created_at.desc())
-    ).first()
-
-    latest_environment = session.exec(
-        select(EnvironmentState)
-        .where(EnvironmentState.user_id == current_user_id)
-        .order_by(EnvironmentState.created_at.desc())
     ).first()
 
     cameras = session.exec(
@@ -40,7 +34,6 @@ def get_dashboard(
 
     return {
         "currentEmotion": to_emotion_response(latest_emotion) if latest_emotion else None,
-        "environment": to_environment_response(latest_environment) if latest_environment else None,
         "cameras": {
             "totalCount": len(cameras),
             "onlineCount": len([camera for camera in cameras if camera.status == "online"]),
@@ -75,18 +68,6 @@ def to_emotion_response(event: EmotionEvent) -> dict:
         "created_at": event.created_at,
         "topPredictions": top_predictions,
         "top_predictions": top_predictions,
-    }
-
-
-def to_environment_response(environment: EnvironmentState) -> dict:
-    return {
-        "id": environment.id,
-        "user_id": environment.user_id,
-        "temperature": environment.temperature,
-        "humidity": environment.humidity,
-        "light": environment.light,
-        "air_quality": environment.air_quality,
-        "created_at": environment.created_at,
     }
 
 

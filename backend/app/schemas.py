@@ -85,34 +85,3 @@ class AlertRead(BaseModel):
     message: Optional[str]
     is_read: bool
     created_at: datetime
-
-
-class EnvironmentCreate(BaseModel):
-    temperature: float
-    humidity: float
-    light: str = "적정"
-    air_quality: str = "좋음"
-
-
-class EnvironmentRead(BaseModel):
-    model_config = ConfigDict(from_attributes=True)
-
-    id: int
-    user_id: int
-    temperature: float
-    humidity: float
-    light: str
-    air_quality: str
-    created_at: datetime
-
-
-class DeviceStateRead(BaseModel):
-    model_config = ConfigDict(from_attributes=True)
-
-    id: int
-    user_id: int
-    name: str
-    type: str
-    status: str
-    description: Optional[str]
-    updated_at: datetime

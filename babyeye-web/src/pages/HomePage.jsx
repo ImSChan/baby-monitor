@@ -3,11 +3,8 @@ import {
   AlertCircle,
   Baby,
   Camera,
-  Droplets,
-  Lightbulb,
   Moon,
   RefreshCw,
-  Thermometer,
   Upload,
   Video,
   Wifi,
@@ -207,7 +204,6 @@ function HomePage() {
   }
 
   const currentEmotion = dashboardData?.currentEmotion
-  const environment = dashboardData?.environment
   const cameras = dashboardData?.cameras
   const alerts = dashboardData?.alerts || []
   const currentPredictions = getTopPredictions(currentEmotion)
@@ -447,32 +443,6 @@ function HomePage() {
               <TopPredictionCard analysisResult={analysisResult} />
             )}
           </Card>
-
-          <div className='mb-5 grid grid-cols-3 gap-3'>
-            <Card className='p-4'>
-              <Thermometer size={22} className='mb-3 text-rose-300' />
-              <p className='text-xs text-slate-400'>온도</p>
-              <p className='mt-1 text-lg font-bold'>
-                {environment?.temperature ?? '-'}°C
-              </p>
-            </Card>
-
-            <Card className='p-4'>
-              <Droplets size={22} className='mb-3 text-blue-300' />
-              <p className='text-xs text-slate-400'>습도</p>
-              <p className='mt-1 text-lg font-bold'>
-                {environment?.humidity ?? '-'}%
-              </p>
-            </Card>
-
-            <Card className='p-4'>
-              <Lightbulb size={22} className='mb-3 text-amber-300' />
-              <p className='text-xs text-slate-400'>조명</p>
-              <p className='mt-1 text-lg font-bold'>
-                {environment?.light || '-'}
-              </p>
-            </Card>
-          </div>
 
           <Card>
             <div className='mb-4 flex items-center justify-between'>

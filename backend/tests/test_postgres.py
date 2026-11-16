@@ -109,3 +109,46 @@ def test_concurrent_dispatchers_send_once(pg, push_enabled, monkeypatch):
     assert len(calls) == 1
     with Session(pg) as session:
         assert session.exec(select(PushDelivery)).one().status == 'sent'
+
+
+def test_retire_smart_home_migration_is_repeatable_and_preserves_core_data(pg):
+    from sqlalchemy import inspect
+    eid, _ = seed(pg)
+    with pg.begin() as conn:
+        conn.execute(text('CREATE TABLE device_states (id SERIAL PRIMARY KEY, user_id INTEGER REFERENCES app_users(id))'))
+        conn.execute(text('CREATE TABLE environment_states (id SERIAL PRIMARY KEY, user_id INTEGER REFERENCES app_users(id))'))
+        conn.execute(text('INSERT INTO device_states(user_id) VALUES (1)'))
+        conn.execute(text('INSERT INTO environment_states(user_id) VALUES (1)'))
+    sql = (Path(__file__).parents[1] / 'migrations/005_remove_smart_home.sql').read_text(encoding='utf-8')
+    for _ in range(2):
+        raw = pg.raw_connection()
+        try:
+            with raw.cursor() as cursor:
+                cursor.execute(sql)
+            raw.commit()
+        finally:
+            raw.close()
+    SQLModel.metadata.create_all(pg)
+    assert not {'device_states', 'environment_states'} & set(inspect(pg).get_table_names())
+    with Session(pg) as session:
+        assert session.get(NotificationEvent, eid) is not None
+        assert len(session.exec(select(AppUser)).all()) == 2
+        assert session.exec(select(PushDevice)).one().active
+
+
+def test_retirement_never_cascades_into_unexpected_dependencies(pg):
+    with pg.begin() as conn:
+        conn.execute(text('CREATE TABLE device_states (id SERIAL PRIMARY KEY)'))
+        conn.execute(text('CREATE TABLE environment_states (id SERIAL PRIMARY KEY)'))
+        conn.execute(text('CREATE TABLE protected_reference (id INTEGER REFERENCES environment_states(id))'))
+    sql = (Path(__file__).parents[1] / 'migrations/005_remove_smart_home.sql').read_text(encoding='utf-8')
+    raw = pg.raw_connection()
+    try:
+        with raw.cursor() as cursor:
+            with pytest.raises(Exception):
+                cursor.execute(sql)
+        raw.rollback()
+    finally:
+        raw.close()
+    from sqlalchemy import inspect
+    assert {'device_states', 'environment_states', 'protected_reference'} <= set(inspect(pg).get_table_names())
