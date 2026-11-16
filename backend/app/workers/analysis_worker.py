@@ -10,6 +10,7 @@ from app.utils.metadata_io import atomic_write_metadata
 from app.database import engine
 from app.models import EmotionEvent
 from app.services.notification_service import enqueue_notification
+from app.services.care_context_service import apply_care_context
 from app.services.audio_preprocess_service import convert_audio_to_wav
 from app.services.inference_queue_service import (
     pop_inference_job,
@@ -17,7 +18,7 @@ from app.services.inference_queue_service import (
     set_job_status,
 )
 from app.services.inference_service import run_multimodal_inference
-from app.utils.time import kst_now
+from app.utils.time import kst_now, KST
 
 
 def run_worker():
@@ -81,6 +82,8 @@ def process_job(job: dict):
         if is_quiet_audio_metadata(metadata):
             inference_result = build_quiet_audio_normal_result(metadata)
 
+        inference_result = apply_care_context(inference_result, metadata.get('care_context'))
+
         top_predictions = inference_result.get("topPredictions", [])
 
         with Session(engine) as session:
@@ -92,6 +95,7 @@ def process_job(job: dict):
                 need=inference_result.get("need"),
                 message=inference_result.get("message"),
                 top_predictions=top_predictions,
+                care_context=inference_result.get('careContext'),
                 captured_at=parse_captured_at(job.get("captured_at")),
             )
 
@@ -125,6 +129,7 @@ def process_job(job: dict):
                     "capturedAt": event.captured_at.isoformat() if event.captured_at else None,
                     "createdAt": event.created_at.isoformat() if event.created_at else None,
                     "topPredictions": top_predictions,
+                    "careContext": inference_result.get('careContext'),
                     "fusionMethod": inference_result.get("fusion_method"),
                     "normalOverride": inference_result.get("normalOverride"),
                     "normalOverrideReason": inference_result.get("normalOverrideReason"),
@@ -207,7 +212,8 @@ def parse_captured_at(value: str | None) -> datetime:
         return kst_now()
 
     try:
-        return datetime.fromisoformat(value.replace("Z", "+00:00")).replace(tzinfo=None)
+        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+        return parsed.astimezone(KST).replace(tzinfo=None) if parsed.tzinfo else parsed
     except ValueError:
         return kst_now()
 

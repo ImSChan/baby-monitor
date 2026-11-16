@@ -29,11 +29,12 @@ def pg():
     try:
         baseline = [t for t in SQLModel.metadata.sorted_tables
                     if t.name not in {'push_devices', 'notification_events', 'push_deliveries', 'notification_preferences', 'notification_observations',
-                                      'review_analyses', 'review_schedules', 'review_actions'}]
+                                      'review_analyses', 'review_schedules', 'review_actions', 'care_records', 'care_profiles'}]
         SQLModel.metadata.create_all(engine, tables=baseline)
         with engine.begin() as connection:
             connection.execute(text('ALTER TABLE inference_feedback DROP COLUMN learning_group'))
-        migrations = [(Path(__file__).parents[1] / 'migrations' / name).read_text(encoding='utf-8') for name in ['001_push.sql', '002_notification_inbox.sql', '003_training_eligibility.sql', '004_feedback_review.sql']]
+            connection.execute(text('ALTER TABLE emotion_events DROP COLUMN care_context'))
+        migrations = [(Path(__file__).parents[1] / 'migrations' / name).read_text(encoding='utf-8') for name in ['001_push.sql', '002_notification_inbox.sql', '003_training_eligibility.sql', '004_feedback_review.sql', '006_care_records.sql']]
         # psycopg2 runs the explicit BEGIN/COMMIT migration exactly as psql does.
         for _ in range(2):
             raw = engine.raw_connection()
@@ -152,3 +153,34 @@ def test_retirement_never_cascades_into_unexpected_dependencies(pg):
         raw.close()
     from sqlalchemy import inspect
     assert {'device_states', 'environment_states', 'protected_reference'} <= set(inspect(pg).get_table_names())
+
+
+def test_care_migration_additive_and_database_shape_constraints(pg):
+    from sqlalchemy import inspect
+    assert {'care_records','care_profiles'} <= set(inspect(pg).get_table_names())
+    assert 'care_context' in {column['name'] for column in inspect(pg).get_columns('emotion_events')}
+    from sqlalchemy.exc import IntegrityError
+    with pytest.raises(IntegrityError):
+        with pg.begin() as connection:
+            connection.execute(text("INSERT INTO care_records(id,user_id,kind,started_at) VALUES ('invalid',1,'feeding',CURRENT_TIMESTAMP)"))
+    with Session(pg) as session:
+        assert len(session.exec(select(AppUser)).all())==2
+
+
+def test_concurrent_overlapping_sleep_is_serialized(pg):
+    from datetime import timedelta
+    from fastapi import HTTPException
+    from app.routers.care import create_record, RecordInput
+    from app.utils.time import kst_now
+    from app.services.care_context_service import stamp
+    now=kst_now()
+    def insert():
+        payload=RecordInput(id=uuid4(),kind='sleep',started_at=stamp(now-timedelta(hours=2)),ended_at=stamp(now-timedelta(hours=1)))
+        with Session(pg) as session:
+            try:
+                create_record(payload,session,1)
+                return 201
+            except HTTPException as error:
+                return error.status_code
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        assert sorted(pool.map(lambda _:insert(),range(2)))==[201,409]

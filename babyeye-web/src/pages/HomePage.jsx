@@ -13,6 +13,7 @@ import { registerLiveCleanup } from '../services/liveResources'
 import { abortableDelay, throwIfAborted } from '../utils/abort'
 import { preprocessVideoForInference } from '../utils/videoPreprocess'
 import { analysisDate, analysisTime, babyStatus, distribution, formatAnalysisTime, score } from '../utils/babyStatus'
+import { localInput } from '../utils/careTime'
 
 export default function HomePage() {
   const { user } = useAuth()
@@ -36,6 +37,7 @@ function HomeContent() {
   const [uploadMessage, setUploadMessage] = useState('')
   const [uploadError, setUploadError] = useState('')
   const [analysisResult, setAnalysisResult] = useState(null)
+  const [videoCapturedAt, setVideoCapturedAt] = useState('')
 
   const loadOverview = useCallback(async ({ silent = false } = {}) => {
     overviewAbortRef.current?.abort()
@@ -119,7 +121,8 @@ function HomeContent() {
       const queued = await requestMultimodalInference({
         audioFile: preprocessed.audioFile,
         frameFiles: preprocessed.frameFiles,
-        capturedAt: new Date().toISOString(),
+        capturedAt: videoCapturedAt ? new Date(videoCapturedAt).toISOString() : new Date().toISOString(),
+        careContextAllowed: Boolean(videoCapturedAt),
         frameRate: preprocessed.frameRate,
         durationSeconds: preprocessed.durationSeconds,
         audioRmsDbfs: preprocessed.audioMetrics?.rmsDbfs,
@@ -201,6 +204,8 @@ function HomeContent() {
     <section aria-label="영상으로 분석하기" className="rounded-3xl border border-slate-700/60 bg-slate-900/60 p-5">
       <div className="flex items-center gap-2"><Video size={18} className="text-blue-300" /><h2 className="font-bold">영상으로 분석하기</h2></div>
       <p className="mt-2 text-sm leading-6 text-slate-400">저장된 영상으로도 아이의 상태를 확인할 수 있어요.</p>
+      <label className="mt-3 block text-xs text-slate-300">촬영 날짜와 시각 · 선택<input aria-label="영상 촬영 시각" type="datetime-local" max={localInput()} disabled={uploading} value={videoCapturedAt} onChange={e=>setVideoCapturedAt(e.target.value)} className="mt-2 w-full min-w-0 rounded-xl bg-slate-800 p-3"/></label>
+      <p className="mt-2 text-[11px] leading-5 text-slate-500">시각을 입력하면 당시 육아 기록을 참고해요. 모르면 비워두세요.</p>
       <input ref={fileInputRef} type="file" aria-label="분석할 영상 선택" accept="video/*" className="hidden" onChange={handleVideoSelected} />
       <button disabled={uploading} onClick={() => fileInputRef.current?.click()} className="mt-4 flex w-full items-center justify-center gap-2 rounded-xl bg-blue-600 py-3 text-sm font-semibold disabled:opacity-40"><Upload size={16} />{uploading ? '영상 분석 중…' : '영상 선택하여 분석'}</button>
       {uploadMessage && <p role="status" className="mt-3 text-sm leading-6 text-blue-200">{uploadMessage}</p>}

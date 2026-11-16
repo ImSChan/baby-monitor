@@ -7,6 +7,7 @@ import {
   RefreshCw,
 } from 'lucide-react'
 import { Link } from 'react-router-dom'
+import CareContextNote from '../components/care/CareContextNote'
 
 import {
   getInferenceHistory,
@@ -161,7 +162,7 @@ export function FeedbackCard({ item, feedback, onSaved }) {
           </h3>
 
           <p className="mt-1 text-sm text-slate-400">
-            AI 신뢰도 {formatConfidence(item.confidence)}
+            AI 예측 점수 {formatConfidence(item.confidence)}
           </p>
 
           {item.message && (
@@ -182,6 +183,7 @@ export function FeedbackCard({ item, feedback, onSaved }) {
         )}
       </div>
 
+      <CareContextNote context={item.careContext}/>
       {feedback && (
         <div className="mt-4 rounded-xl bg-slate-800 p-3 text-sm">
           <p className="font-medium text-slate-200">

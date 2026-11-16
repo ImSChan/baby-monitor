@@ -10,9 +10,11 @@ export function requestMultimodalInference({
   audioRmsDbfs,
   audioPeakDbfs,
   quietAudio,
+  careContextAllowed = false,
   signal,
 }) {
   const formData = new FormData()
+  formData.append('care_context_allowed', careContextAllowed ? 'true' : 'false')
 
   if (audioFile) {
     formData.append('audio_file', audioFile)

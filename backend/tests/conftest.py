@@ -11,7 +11,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 os.environ.setdefault("JWT_SECRET_KEY", "test-only-secret-key-32-characters-long")
 from app.models import AppUser
 from app.database import get_session
-from app.routers import push, feedback, reviews
+from app.routers import push, feedback, reviews, care
 from app.routers.auth import create_access_token
 from app.config import get_settings
 
@@ -34,6 +34,7 @@ def client(db):
     app.include_router(push.router, prefix="/api/push")
     app.include_router(feedback.router, prefix="/api/feedback")
     app.include_router(reviews.router, prefix="/api/reviews")
+    app.include_router(care.router, prefix="/api/care")
     def sessions():
         with Session(db) as session:
             yield session

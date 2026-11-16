@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { apiGet, apiPost, getApiBaseUrl } from '../../api/client'
 import { getAccessToken } from '../../api/authToken'
 import { useAuth } from '../../contexts/AuthContext'
+import CareContextNote from '../care/CareContextNote'
 
 export const STATES = [['feeding', '배고팠어요'], ['sleep', '졸렸어요'], ['care', '돌봄이 필요했어요'], ['stable', '편안했어요'], ['uncertain', '잘 모르겠어요']]
 export const timeText = value => new Date(value).toLocaleString('ko-KR', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' })
@@ -128,6 +129,7 @@ export default function ReviewEditor({ eventId, onSaved }) {
         onChange={e => { setSelected(Number(e.target.value)); setLabel('') }} className="w-full accent-blue-400" />
       <p className="text-sm">{timeText(item.capturedAt)} · AI 판단: <strong>{item.result.emotion}</strong></p>
       <RecordedMedia key={item.requestId} item={item} />
+      <CareContextNote context={item.result.careContext}/>
       <button className={button} disabled={busy} aria-pressed={range} onClick={() => { setRange(v => !v); setStart(selected); setEnd(selected); setLabel('') }}>{range ? '한 시점만 선택' : '구간 선택하여 일괄 응답'}</button>
       {range && <div className="space-y-2 rounded-xl bg-slate-800 p-3">
         <div className="flex gap-2"><button className={button} disabled={busy} onClick={() => setStart(selected)}>여기부터</button><button className={button} disabled={busy} onClick={() => setEnd(selected)}>여기까지</button></div>

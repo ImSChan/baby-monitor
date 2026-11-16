@@ -129,6 +129,7 @@ class EmotionEvent(SQLModel, table=True):
     need: Optional[str] = None
     message: Optional[str] = None
     top_predictions: list[dict[str, Any]] | None = Field(default=None, sa_column=Column(JSON))
+    care_context: Optional[dict] = Field(default=None, sa_column=Column(JSON, nullable=True))
     captured_at: datetime = Field(default_factory=kst_now)
     created_at: datetime = Field(default_factory=kst_now)
 
@@ -233,3 +234,23 @@ class ReviewAction(SQLModel, table=True):
     changes: list[dict] = Field(sa_column=Column(JSON, nullable=False))
     undone: bool = False
     created_at: datetime = Field(default_factory=kst_now)
+
+
+class CareRecord(SQLModel, table=True):
+    __tablename__ = "care_records"
+    id: str = Field(primary_key=True, max_length=36)
+    user_id: int = Field(foreign_key="app_users.id", index=True)
+    kind: str = Field(max_length=10)
+    meal_type: Optional[str] = Field(default=None, max_length=10)
+    started_at: datetime = Field(index=True)
+    ended_at: Optional[datetime] = None
+    revision: int = 1
+    created_at: datetime = Field(default_factory=kst_now)
+    updated_at: datetime = Field(default_factory=kst_now)
+    deleted_at: Optional[datetime] = None
+
+
+class CareProfile(SQLModel, table=True):
+    __tablename__ = "care_profiles"
+    user_id: int = Field(primary_key=True, foreign_key="app_users.id")
+    context_enabled: bool = True

@@ -7,12 +7,27 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from starlette.websockets import WebSocketDisconnect
-from sqlmodel import Session
+from sqlmodel import Session, SQLModel, create_engine
 from app.database import get_session
 from app.models import AppUser, Camera
 from app.routers import live
 from app.routers.auth import create_access_token, get_secret_key
 from app.services.live_signaling_service import LiveSessionManager, LiveError
+
+
+@pytest.fixture
+def db(tmp_path):
+    # WebSocket revalidation and the test's account update run on different
+    # threads. A single StaticPool connection cannot host both transactions.
+    engine = create_engine('sqlite:///' + (tmp_path / 'live.sqlite').as_posix(),
+                           connect_args={'check_same_thread': False})
+    SQLModel.metadata.create_all(engine)
+    with Session(engine) as session:
+        session.add_all([AppUser(id=1,email='one@example.com',name='One'),
+                         AppUser(id=2,email='two@example.com',name='Two')])
+        session.commit()
+    yield engine
+    engine.dispose()
 
 
 @pytest.fixture

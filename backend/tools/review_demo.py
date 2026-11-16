@@ -32,7 +32,7 @@ def main():
         from sqlmodel import SQLModel, Session, select
         from app.database import engine
         from app.models import AppUser, EmotionEvent, NotificationPreference, PushDevice, ReviewSchedule
-        from app.routers import push, reviews, feedback, inference, auth
+        from app.routers import push, reviews, feedback, inference, auth, care, dashboard, emotions
         from app.services.notification_service import enqueue_notification
         from app.services.review_service import enqueue_reviews
         from app.services.firebase_service import send_notification
@@ -50,7 +50,8 @@ def main():
         app = FastAPI(title='LOCAL MOCK ONLY — captured FCM transport')
         app.add_middleware(CORSMiddleware, allow_origins=['http://127.0.0.1:5179'], allow_methods=['*'], allow_headers=['*'])
         for router, prefix in [(push.router, '/api/push'), (reviews.router, '/api/reviews'),
-            (feedback.router, '/api/feedback'), (inference.router, '/api/inference'), (auth.router, '/api/auth')]:
+            (feedback.router, '/api/feedback'), (inference.router, '/api/inference'), (auth.router, '/api/auth'),
+            (care.router, '/api/care'), (dashboard.router, '/api/dashboard'), (emotions.router, '/api/emotions')]:
             app.include_router(router, prefix=prefix)
         outbox = []
 
@@ -111,8 +112,38 @@ def main():
             drain()
             return {'outboxCount': len(outbox)}
 
+        @app.post('/mock/care-analysis')
+        def care_analysis():
+            from app.services.care_context_service import build_care_snapshot, stamp
+            from app.workers import analysis_worker
+            raw = {'emotion':'배고픔','need':'feeding','confidence':.5,'message':'mock 영상·소리 결과',
+                'normalOverride':False,'topPredictions':[
+                    {'emotion':'배고픔','need':'feeding','confidence':.5,'message':'mock 배고픔 후보'},
+                    {'emotion':'잠와요','need':'sleep','confidence':.48,'message':'mock 졸림 후보'}]}
+            for _ in range(3):
+                rid=str(uuid4()); directory=inference.UPLOAD_ROOT/rid; directory.mkdir()
+                frame=directory/'frame.jpg'; frame.write_bytes(b'local mock frame; predictor is stubbed')
+                with Session(engine) as session:
+                    snapshot=build_care_snapshot(session,1,kst_now())
+                metadata={'request_id':rid,'user_id':1,'status':'queued','synthetic':True,
+                    'care_context':snapshot,'quiet_audio':False,'selected_frame_path':str(frame)}
+                path=directory/'metadata.json'; path.write_text(json.dumps(metadata),encoding='utf-8')
+                job={'request_id':rid,'user_id':1,'metadata_path':str(path),'request_dir':str(directory),
+                     'selected_frame_path':str(frame),'captured_at':stamp(kst_now())}
+                with patch.object(analysis_worker,'run_multimodal_inference',return_value=raw), \
+                     patch.object(analysis_worker,'set_job_status'), patch.object(analysis_worker,'set_job_result'):
+                    analysis_worker.process_job(job)
+                final=json.loads(path.read_text(encoding='utf-8'))
+                if final['status'] != 'completed':
+                    raise RuntimeError('Isolated care scenario failed')
+            drain()
+            return {'result':final['result'],'outboxCount':len(outbox),'model':'mock','transport':'captured'}
+
         import uvicorn
-        uvicorn.run(app, host='127.0.0.1', port=args.port, log_level='warning')
+        try:
+            uvicorn.run(app, host='127.0.0.1', port=args.port, log_level='warning')
+        finally:
+            engine.dispose()
 
 
 if __name__ == '__main__':

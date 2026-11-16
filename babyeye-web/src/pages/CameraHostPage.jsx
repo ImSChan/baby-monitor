@@ -112,6 +112,7 @@ function CameraHostPage() {
       }
 
       const queued = await requestMultimodalInference({
+        careContextAllowed: true,
         audioFile,
         frameFiles: frameFile ? [frameFile] : [],
         capturedAt: new Date().toISOString(),

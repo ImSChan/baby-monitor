@@ -26,7 +26,7 @@ try {
  await page.addInitScript(()=>sessionStorage.setItem('babyeye_access_token','isolated-browser-fixture'));
  await page.goto('http://127.0.0.1:5180/');await page.getByText('배가 고픈 것 같아요').waitFor();
  await page.screenshot({path:output+'/01-home-overview.png'});await page.screenshot({path:output+'/02-home-full.png',fullPage:true});
- if(await page.locator('nav a').count()!==4)throw new Error('Unexpected bottom tabs');
+ if(await page.locator('nav a').count()!==5)throw new Error('Unexpected bottom tabs');
  if(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth))throw new Error('Horizontal overflow');
  const summary=await page.getByRole('region',{name:'최근 아기 상태'}).boundingBox();const live=await page.getByRole('region',{name:'라이브 확인'}).boundingBox();if(summary.y>=live.y)throw new Error('Live before analysis');
  await page.getByRole('button',{name:'분석 기록 20건 모두 보기'}).click();if(await page.locator('ol li').count()!==20)throw new Error('Missing history');
@@ -36,6 +36,6 @@ try {
  mode='error';await page.reload();await page.getByText('분석 결과를 불러오지 못했어요').waitFor();await page.screenshot({path:output+'/05-home-unavailable.png'});
  mode='data';await page.setViewportSize({width:320,height:740});await page.reload();await page.getByText('배가 고픈 것 같아요').waitFor();if(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth))throw new Error('Narrow screen overflow');await page.screenshot({path:output+'/06-home-narrow.png'});
  if(errors.length)throw new Error(errors.join('\n'));
- const result={status:'passed',viewport:'390x844',cases:['populated','empty','older result','20-record history','legacy emotion redirect','four tabs','no horizontal overflow','server unavailable','320px narrow viewport'],pageErrors:errors,api:'mock'};
+ const result={status:'passed',viewport:'390x844',cases:['populated','empty','older result','20-record history','legacy emotion redirect','five tabs including care','no horizontal overflow','server unavailable','320px narrow viewport'],pageErrors:errors,api:'mock'};
  await writeFile(output+'/browser-results.json',JSON.stringify(result,null,2));console.log(JSON.stringify(result));
 }finally{await browser.close()}

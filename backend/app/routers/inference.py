@@ -2,7 +2,7 @@
 import json
 import shutil
 import uuid
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Annotated, Optional
 
@@ -14,6 +14,7 @@ from app.utils.metadata_io import atomic_write_metadata
 from app.database import get_session
 from app.deps import get_current_user_id
 from app.models import Camera
+from app.services.care_context_service import build_care_snapshot, to_kst
 from app.services.inference_queue_service import (
     enqueue_inference_job,
     get_job_result,
@@ -190,6 +191,7 @@ def get_inference_history(
             "emotionEventId": result.get("emotionEventId"),
             "cameraId": metadata.get("camera_id"),
             "emotion": result.get("emotion"),
+            "careContext": result.get("careContext"),
             "confidence": result.get("confidence"),
             "need": result.get("need"),
             "message": result.get("message"),
@@ -261,6 +263,7 @@ async def analyze_multimodal_upload(
         Optional[bool],
         Form(description="오디오가 조용한 상태인지 여부"),
     ] = None,
+    care_context_allowed: Annotated[bool, Form(description="촬영 시각에 맞는 육아 기록 참고 허용")] = False,
     session: Session = Depends(get_session),
     current_user_id: int = Depends(get_current_user_id),
 ):
@@ -284,6 +287,18 @@ async def analyze_multimodal_upload(
                 detail="Camera not found",
             )
 
+    reference = kst_now()
+    if care_context_allowed:
+        try:
+            if not captured_at:
+                raise ValueError('Missing capture time')
+            reference = to_kst(captured_at)
+            if reference > kst_now() + timedelta(minutes=2):
+                raise ValueError('Future capture time')
+        except (ValueError, TypeError, OverflowError):
+            raise HTTPException(422, '기록을 참고하려면 올바른 촬영 날짜와 시각이 필요합니다.')
+    care_snapshot = build_care_snapshot(session, current_user_id, reference, allowed=care_context_allowed)
+    session.close()  # Do not hold a DB transaction during media upload.
     request_id = str(uuid.uuid4())
     request_dir = UPLOAD_ROOT / request_id
     frames_dir = request_dir / "frames"
@@ -368,6 +383,7 @@ async def analyze_multimodal_upload(
             "user_id": current_user_id,
             "camera_id": camera_id,
             "captured_at": captured_at,
+            "care_context": care_snapshot,
             "frame_rate": frame_rate,
             "duration_seconds": duration_seconds,
             "audio_rms_dbfs": audio_rms_dbfs,

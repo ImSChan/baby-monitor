@@ -14,6 +14,7 @@ import { useAuth } from '../contexts/AuthContext'
 
 import CameraHostPage from '../pages/CameraHostPage'
 import HomePage from '../pages/HomePage'
+import CarePage from '../pages/CarePage'
 import LivePage from '../pages/LivePage'
 import SettingsPage from '../pages/SettingsPage'
 import LoginPage from '../pages/LoginPage'
@@ -45,6 +46,7 @@ function AppRouter() {
 
       <Route element={<ProtectedRoute />}>
         <Route path="/" element={<HomePage />} />
+        <Route path="/care" element={<CarePage />} />
         <Route path="/live" element={<LivePage />} />
         <Route path="/camera-host" element={<CameraHostPage />} />
         <Route path="/emotion" element={<Navigate to="/" replace />} />

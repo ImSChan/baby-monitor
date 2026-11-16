@@ -68,6 +68,7 @@ def to_emotion_response(event: EmotionEvent) -> dict:
         "created_at": event.created_at,
         "topPredictions": top_predictions,
         "top_predictions": top_predictions,
+        "careContext": event.care_context,
     }
 
 
