@@ -423,8 +423,8 @@ export default function FeedbackPage() {
     <main className="px-5 py-6 pb-28 text-white">
       <div className="mb-6 flex items-center gap-3">
         <Link
-          to="/emotion"
-          aria-label="감정 분석 화면으로 돌아가기"
+          to="/"
+          aria-label="아기 상태 홈으로 돌아가기"
           className="rounded-xl bg-slate-800 p-2"
         >
           <ArrowLeft size={20} />

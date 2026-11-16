@@ -1,5 +1,5 @@
 ﻿import { apiGet } from './client'
 
-export function getDashboard() {
-  return apiGet('/api/dashboard')
+export function getDashboard(options = {}) {
+  return apiGet('/api/dashboard', options)
 }

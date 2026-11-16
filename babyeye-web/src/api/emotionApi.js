@@ -4,8 +4,8 @@ export function getCurrentEmotion() {
   return apiGet('/api/emotions/current')
 }
 
-export function getEmotionHistory() {
-  return apiGet('/api/emotions/history')
+export function getEmotionHistory(options = {}) {
+  return apiGet('/api/emotions/history', options)
 }
 
 export function createEmotionEvent(eventData) {

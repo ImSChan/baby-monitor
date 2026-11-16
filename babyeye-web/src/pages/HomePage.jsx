@@ -1,120 +1,88 @@
-﻿import { useEffect, useRef, useState } from 'react'
-import {
-  AlertCircle,
-  Baby,
-  Camera,
-  Moon,
-  RefreshCw,
-  Upload,
-  Video,
-  Wifi,
-  WifiOff,
-} from 'lucide-react'
-
-import Card from '../components/common/Card'
+import { useCallback, useEffect, useRef, useState } from 'react'
+import { Link } from 'react-router-dom'
+import { ArrowRight, Camera, ChevronDown, RefreshCw, Upload, Video } from 'lucide-react'
 import Header from '../components/common/Header'
-import StatusBadge from '../components/common/StatusBadge'
+import BabyStatusOverview from '../components/home/BabyStatusOverview'
 import { getDashboard } from '../api/dashboardApi'
-import {
-  getInferenceResult,
-  getInferenceStatus,
-  requestMultimodalInference,
-} from '../api/inferenceApi'
-import {
-  getLiveSessions,
-} from '../api/liveApi'
-import { useLiveViewer } from '../hooks/useLiveConnection'
-import { useAuth } from '../contexts/AuthContext'
+import { getEmotionHistory } from '../api/emotionApi'
+import { getLiveSessions } from '../api/liveApi'
+import { getInferenceResult, getInferenceStatus, requestMultimodalInference } from '../api/inferenceApi'
 import { getAccessToken } from '../api/authToken'
+import { useAuth } from '../contexts/AuthContext'
 import { registerLiveCleanup } from '../services/liveResources'
 import { abortableDelay, throwIfAborted } from '../utils/abort'
 import { preprocessVideoForInference } from '../utils/videoPreprocess'
+import { analysisDate, analysisTime, babyStatus, distribution, formatAnalysisTime, score } from '../utils/babyStatus'
 
-function HomePage() {
-  const fileInputRef = useRef(null)
-  const remoteVideoRef = useRef(null)
+export default function HomePage() {
   const { user } = useAuth()
-  const { selectedSession, receiving, status: liveStatus, error: liveError, connecting: liveConnecting,
-    start: connectToLiveSession, stop: stopLiveViewer } = useLiveViewer(remoteVideoRef)
+  return <HomeContent key={user?.id} />
+}
+
+function HomeContent() {
+  const fileInputRef = useRef(null)
   const pageEpochRef = useRef(0)
+  const requestRef = useRef(0)
+  const overviewAbortRef = useRef(null)
   const uploadAbortRef = useRef(null)
-
   const [dashboardData, setDashboardData] = useState(null)
+  const [history, setHistory] = useState([])
+  const [liveSessions, setLiveSessions] = useState([])
   const [initialLoading, setInitialLoading] = useState(true)
-  const [dashboardError, setDashboardError] = useState(null)
-  const [refreshingDashboard, setRefreshingDashboard] = useState(false)
-
+  const [refreshing, setRefreshing] = useState(false)
+  const [errors, setErrors] = useState({})
+  const [expanded, setExpanded] = useState(false)
   const [uploading, setUploading] = useState(false)
   const [uploadMessage, setUploadMessage] = useState('')
   const [uploadError, setUploadError] = useState('')
   const [analysisResult, setAnalysisResult] = useState(null)
 
-  const [liveSessions, setLiveSessions] = useState([])
+  const loadOverview = useCallback(async ({ silent = false } = {}) => {
+    overviewAbortRef.current?.abort()
+    const controller = new AbortController(), request = ++requestRef.current
+    overviewAbortRef.current = controller
+    const epoch = pageEpochRef.current, token = getAccessToken()
+    if (!silent) setRefreshing(true)
+    const options = { signal: controller.signal }
+    const active = () => !controller.signal.aborted && request === requestRef.current && epoch === pageEpochRef.current && token === getAccessToken()
+    async function loadPart(key, task, apply) {
+      let timer, cancel
+      try {
+        const value = await Promise.race([task, new Promise((_, reject) => {
+          timer = setTimeout(() => reject(new Error('응답 시간이 초과됐어요.')), 10000)
+        }), new Promise((_, reject) => {
+          cancel = () => reject(new DOMException('화면을 떠났어요.', 'AbortError'))
+          controller.signal.addEventListener('abort', cancel, { once: true })
+        })])
+        if (active()) { apply(value); setErrors(current => ({ ...current, [key]: false })) }
+      } catch {
+        if (active()) setErrors(current => ({ ...current, [key]: true }))
+      } finally { clearTimeout(timer); controller.signal.removeEventListener('abort', cancel) }
+    }
+    // Live availability must never hold up the baby's analysis summary.
+    loadPart('live', getLiveSessions(options), value => setLiveSessions(Array.isArray(value) ? value : []))
+    await Promise.all([
+      loadPart('dashboard', getDashboard(options), setDashboardData),
+      loadPart('history', getEmotionHistory(options), value => setHistory(Array.isArray(value) ? value : [])),
+    ])
+    if (active()) { setInitialLoading(false); setRefreshing(false) }
+  }, [])
 
   useEffect(() => {
     pageEpochRef.current++
-    setLiveSessions([]); setDashboardData(null); setAnalysisResult(null)
-    const unregister = registerLiveCleanup(() => uploadAbortRef.current?.abort())
-    loadDashboard({ initial: true })
-    loadLiveSessions()
-
-    const sessionTimer = window.setInterval(() => {
-      loadLiveSessions()
-    }, 5000)
-
+    loadOverview()
+    const refresh = () => { if (!document.hidden) loadOverview({ silent: true }) }
+    const timer = window.setInterval(refresh, 15000)
+    const unregister = registerLiveCleanup(() => { uploadAbortRef.current?.abort(); overviewAbortRef.current?.abort() })
+    document.addEventListener('visibilitychange', refresh)
+    window.addEventListener('babyeye:notifications', refresh)
     return () => {
-      pageEpochRef.current++
-      unregister()
-      uploadAbortRef.current?.abort()
-      window.clearInterval(sessionTimer)
+      pageEpochRef.current++; overviewAbortRef.current?.abort(); uploadAbortRef.current?.abort()
+      unregister(); window.clearInterval(timer)
+      document.removeEventListener('visibilitychange', refresh)
+      window.removeEventListener('babyeye:notifications', refresh)
     }
-  }, [user?.id])
-
-  useEffect(() => {
-    if (!selectedSession) {
-      return undefined
-    }
-
-    loadDashboard({ silent: true })
-
-    const dashboardTimer = window.setInterval(() => {
-      loadDashboard({ silent: true })
-    }, 5000)
-
-    return () => {
-      window.clearInterval(dashboardTimer)
-    }
-  }, [selectedSession])
-
-  async function loadDashboard(options = {}) {
-    const token = getAccessToken(), epoch = pageEpochRef.current
-    try {
-      if (options.initial) {
-        setInitialLoading(true)
-      } else if (!options.silent) {
-        setRefreshingDashboard(true)
-      }
-
-      const result = await getDashboard()
-      if (epoch !== pageEpochRef.current || token !== getAccessToken()) return
-      setDashboardData(result)
-      setDashboardError(null)
-    } catch (err) {
-      if (epoch === pageEpochRef.current && token === getAccessToken()) setDashboardError(err)
-    } finally {
-      if (epoch === pageEpochRef.current) { setInitialLoading(false); setRefreshingDashboard(false) }
-    }
-  }
-
-  async function loadLiveSessions() {
-    const token = getAccessToken(), epoch = pageEpochRef.current
-    try {
-      const sessions = await getLiveSessions()
-      if (epoch === pageEpochRef.current && token === getAccessToken()) setLiveSessions(sessions || [])
-    } catch {
-      if (epoch === pageEpochRef.current && token === getAccessToken()) setLiveSessions([])
-    }
-  }
+  }, [loadOverview])
 
   async function handleVideoSelected(event) {
     const file = event.target.files?.[0]
@@ -129,7 +97,7 @@ function HomePage() {
     const signal = controller.signal
     try {
       setUploading(true)
-      setUploadMessage('영상 전처리를 시작합니다...')
+      setUploadMessage('분석할 영상을 준비하고 있어요.')
       setUploadError('')
       setAnalysisResult(null)
 
@@ -137,26 +105,16 @@ function HomePage() {
         framesPerSecond: 1,
         maxFrames: 20,
         maxWidth: 640,
-        onProgress: message => { if (!signal.aborted) setUploadMessage(message) },
+        onProgress: message => { if (!signal.aborted) setUploadMessage('분석할 영상을 준비하고 있어요.') },
       })
 
       throwIfAborted(signal)
       if (token !== getAccessToken()) return
       if (preprocessed.frameFiles.length === 0 && !preprocessed.audioFile) {
-        throw new Error('분석할 프레임 또는 오디오를 추출하지 못했습니다.')
+        throw new Error('이 영상에서 분석할 자료를 준비하지 못했어요. 다른 영상으로 시도해주세요.')
       }
 
-      const audioStatus = preprocessed.audioFile
-        ? '오디오 추출 완료'
-        : '오디오 추출 실패. 프레임만 전송합니다.'
-
-      setUploadMessage(
-        '프레임 ' +
-          preprocessed.frameFiles.length +
-          '개 추출 완료. ' +
-          audioStatus +
-          ' 서버에 분석 작업을 등록하는 중입니다...'
-      )
+      setUploadMessage('준비한 영상을 분석 서버에 보내고 있어요.')
 
       const queued = await requestMultimodalInference({
         audioFile: preprocessed.audioFile,
@@ -174,10 +132,10 @@ function HomePage() {
       const requestId = queued.requestId
 
       if (!requestId) {
-        throw new Error('서버 응답에 requestId가 없습니다.')
+        throw new Error('분석 요청을 확인할 수 없어요. 다시 시도해주세요.')
       }
 
-      setUploadMessage('분석 작업이 등록되었습니다. 작업 처리 상태를 확인하는 중입니다...')
+      setUploadMessage('분석을 기다리고 있어요.')
 
       const completedResult = await waitForInferenceCompleted(requestId, {
         signal,
@@ -187,12 +145,13 @@ function HomePage() {
       throwIfAborted(signal)
       setAnalysisResult({
         ...completedResult.result,
+        analyzedAt: new Date().toISOString(),
         requestId,
         saved: completedResult.saved,
       })
 
-      setUploadMessage('영상 분석이 완료되었습니다.')
-      await loadDashboard({ silent: true })
+      setUploadMessage('분석이 완료됐어요. 맨 위에서 결과를 확인해 주세요.')
+      await loadOverview({ silent: true })
     } catch (err) {
       if (!signal.aborted) { setUploadError(err.message || '영상 분석 요청 중 오류가 발생했습니다.'); setUploadMessage('') }
     } finally {
@@ -203,349 +162,52 @@ function HomePage() {
     }
   }
 
-  const currentEmotion = dashboardData?.currentEmotion
-  const cameras = dashboardData?.cameras
-  const alerts = dashboardData?.alerts || []
-  const currentPredictions = getTopPredictions(currentEmotion)
+  const latest = [dashboardData?.currentEmotion, history[0], analysisResult].filter(Boolean)
+    .sort((a, b) => (analysisDate(analysisTime(b))?.getTime() || 0) - (analysisDate(analysisTime(a))?.getTime() || 0))[0]
+  const breakdown = distribution(history)
+  const shown = expanded ? history : history.slice(0, 4)
 
-  return (
-    <main className='px-5 py-6'>
-      <Header />
+  return <main className="space-y-5 px-5 py-6">
+    <Header title="아기 상태" subtitle="아이에게 필요한 것을 한눈에" />
+    <BabyStatusOverview result={latest} loading={initialLoading} unavailable={errors.dashboard && errors.history} />
+    {errors.dashboard && <p role="alert" className="rounded-xl bg-amber-400/10 p-3 text-sm text-amber-200">최신 상태를 갱신하지 못했어요. 표시된 분석 시각을 확인해 주세요.<button onClick={() => loadOverview()} className="ml-2 underline">다시 시도</button></p>}
 
-      {initialLoading && (
-        <Card>
-          <p className='text-sm text-slate-300'>대시보드 정보를 불러오는 중입니다...</p>
-        </Card>
-      )}
-
-      {dashboardError && !dashboardData && (
-        <Card>
-          <p className='font-semibold text-rose-300'>데이터를 불러오지 못했습니다.</p>
-          <p className='mt-2 text-sm text-slate-400'>{dashboardError.message}</p>
-        </Card>
-      )}
-
-      {!initialLoading && dashboardData && (
-        <>
-          <section className='mb-5 overflow-hidden rounded-[32px] border border-slate-700/70 bg-slate-900 shadow-card'>
-            <div className='relative flex h-64 items-center justify-center bg-gradient-to-br from-slate-800 via-slate-900 to-indigo-950'>
-              <video
-                ref={remoteVideoRef}
-                autoPlay
-                playsInline
-                muted
-                controls={false}
-                className={selectedSession ? 'h-full w-full object-cover' : 'hidden'}
-              />
-
-              {!selectedSession && (
-                <div className='text-center'>
-                  <div className='mx-auto mb-3 flex h-16 w-16 items-center justify-center rounded-full bg-white/10'>
-                    <Camera size={32} className='text-blue-200' />
-                  </div>
-                  <p className='text-lg font-semibold'>아기 방 카메라</p>
-                  <p className='mt-1 text-sm text-slate-400'>
-                    등록 카메라 {cameras?.totalCount || 0}대 · 온라인 세션 {liveSessions.length}개
-                  </p>
-                </div>
-              )}
-
-              <div className='absolute left-4 top-4'>
-                <StatusBadge type={selectedSession ? 'normal' : liveSessions.length > 0 ? 'normal' : 'warning'}>
-                  {selectedSession ? (receiving ? 'LIVE' : 'CONNECTING') : liveSessions.length > 0 ? 'READY' : 'OFFLINE'}
-                </StatusBadge>
-              </div>
-
-              {refreshingDashboard && selectedSession && (
-                <div className='absolute right-4 top-4 rounded-full bg-black/50 px-3 py-1 text-[11px] text-slate-200'>
-                  분석 결과 갱신 중
-                </div>
-              )}
-            </div>
-
-            <div className='p-5'>
-              <div className='mb-4 flex items-center justify-between'>
-                <div>
-                  <p className='text-sm text-slate-400'>아기 방 카메라</p>
-                  <h2 className='mt-1 text-2xl font-bold'>
-                    {selectedSession ? (receiving ? '실시간 모니터링 중' : '영상 연결 중') : '라이브 피드 대기'}
-                  </h2>
-                </div>
-
-                <div className='flex h-14 w-14 items-center justify-center rounded-2xl bg-indigo-400/15 text-indigo-200'>
-                  <Moon size={28} />
-                </div>
-              </div>
-
-              {liveError && (
-                <p className='mb-4 rounded-2xl bg-rose-400/10 p-3 text-sm text-rose-300'>
-                  {liveError}
-                </p>
-              )}
-
-              {!selectedSession && (
-                <div className='mb-4 rounded-2xl bg-slate-950/40 p-4'>
-                  <div className='mb-3 flex items-center justify-between'>
-                    <p className='text-sm font-semibold text-blue-200'>온라인 라이브 세션</p>
-                    <button
-                      type='button'
-                      onClick={loadLiveSessions}
-                      className='rounded-xl bg-slate-800 p-2 text-slate-300'
-                    >
-                      <RefreshCw size={16} />
-                    </button>
-                  </div>
-
-                  {liveSessions.length === 0 ? (
-                    <p className='text-xs leading-5 text-slate-400'>
-                      현재 연결 가능한 홈캠 세션이 없습니다. 공기계 휴대폰에서 홈캠 모드를 먼저 시작하세요.
-                    </p>
-                  ) : (
-                    <div className='space-y-2'>
-                      {liveSessions.slice(0, 3).map((session) => (
-                        <button
-                          key={session.sessionId}
-                          type='button'
-                          disabled={liveConnecting}
-                          onClick={() => connectToLiveSession(session)}
-                          className='flex w-full items-center justify-between rounded-2xl bg-slate-800/80 p-3 text-left transition hover:bg-slate-800 disabled:opacity-60'
-                        >
-                          <div>
-                            <p className='text-sm font-semibold text-white'>
-                              {session.cameraName || '휴대폰 홈캠'}
-                            </p>
-                            <p className='mt-1 text-xs text-slate-500'>
-                              {session.status} · {session.sessionId}
-                            </p>
-                          </div>
-                          <Wifi size={18} className='text-emerald-300' />
-                        </button>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              )}
-
-              {selectedSession && (
-                <button
-                  type='button'
-                  onClick={() => stopLiveViewer(true)}
-                  className='mb-4 flex w-full items-center justify-center gap-2 rounded-2xl bg-slate-800 py-3 text-sm font-bold text-slate-200'
-                >
-                  <WifiOff size={18} />
-                  라이브 연결 종료
-                </button>
-              )}
-
-              <div className='rounded-[28px] bg-slate-950/50 p-5'>
-                <div className='mb-4 flex items-center gap-3'>
-                  <div className='flex h-11 w-11 items-center justify-center rounded-full bg-blue-400/15 text-blue-200'>
-                    <Baby size={24} />
-                  </div>
-                  <div>
-                    <p className='text-xs font-semibold text-blue-200'>최근 AI 분석 결과</p>
-                    <h3 className='text-lg font-bold text-white'>현재 아기가 우는 이유</h3>
-                  </div>
-                </div>
-
-                {currentPredictions.length === 0 ? (
-                  <p className='text-sm leading-6 text-slate-400'>
-                    아직 분석된 감정 데이터가 없습니다. 홈캠 실시간 분석 또는 영상 업로드 분석을 실행하세요.
-                  </p>
-                ) : (
-                  <div className='grid grid-cols-2 gap-3'>
-                    {currentPredictions.map((item, index) => (
-                      <div
-                        key={item.emotion + index}
-                        className='rounded-3xl border border-slate-700/70 bg-slate-900/80 p-4'
-                      >
-                        <div className='mb-3 flex items-center justify-between'>
-                          <div className='flex h-12 w-12 items-center justify-center rounded-2xl bg-white/10 text-2xl'>
-                            {getEmotionIcon(item.need || item.emotion)}
-                          </div>
-                          <span className='rounded-full bg-blue-400/10 px-2 py-1 text-[11px] font-semibold text-blue-200'>
-                            TOP {index + 1}
-                          </span>
-                        </div>
-
-                        <p className='text-sm font-bold text-blue-200'>
-                          {toUserFriendlyEmotion(item.emotion)}
-                        </p>
-
-                        <p className='mt-1 text-3xl font-light text-white'>
-                          {Math.round((item.confidence || 0) * 100)}
-                          <span className='ml-1 text-base text-slate-400'>%</span>
-                        </p>
-                      </div>
-                    ))}
-                  </div>
-                )}
-
-                <p className='mt-4 text-xs leading-5 text-slate-400'>
-                  홈캠에서 5초 단위 분석이 완료되면 최신 상태 후보 2개가 자동으로 갱신됩니다.
-                </p>
-              </div>
-            </div>
-          </section>
-
-          <Card className='mb-5 border-blue-400/30 bg-gradient-to-br from-slate-900 to-blue-950/60'>
-            <div className='flex items-start gap-4'>
-              <div className='flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl bg-blue-400/15 text-blue-200'>
-                <Video size={28} />
-              </div>
-
-              <div className='min-w-0 flex-1'>
-                <p className='text-sm font-semibold text-blue-200'>영상 업로드 분석</p>
-                <h2 className='mt-1 text-xl font-bold text-white'>
-                  저장된 영상으로 감정 상태 분석
-                </h2>
-                <p className='mt-2 text-sm leading-6 text-slate-400'>
-                  영상을 업로드하면 브라우저에서 프레임과 오디오를 추출한 뒤, AI 분석 서버로 전송합니다.
-                </p>
-              </div>
-            </div>
-
-            <div className='mt-4 rounded-2xl bg-slate-950/40 p-4 text-xs leading-5 text-slate-400'>
-              현재는 프로토타입 단계입니다. 안드로이드 환경 기준으로 영상에서 오디오와 프레임을 추출해 분석을 요청합니다.
-            </div>
-
-            <input
-              ref={fileInputRef}
-              type='file'
-              accept='video/*'
-              className='hidden'
-              onChange={handleVideoSelected}
-            />
-
-            <button
-              type='button'
-              disabled={uploading}
-              onClick={() => fileInputRef.current?.click()}
-              className='mt-4 flex w-full items-center justify-center gap-2 rounded-2xl bg-blue-500 py-3 text-sm font-bold text-white transition hover:bg-blue-400 disabled:cursor-not-allowed disabled:bg-slate-700 disabled:text-slate-400'
-            >
-              <Upload size={18} />
-              {uploading ? '분석 요청 중...' : '영상 업로드하여 분석'}
-            </button>
-
-            {uploadMessage && (
-              <p className='mt-3 rounded-2xl bg-blue-400/10 p-3 text-sm leading-6 text-blue-100'>
-                {uploadMessage}
-              </p>
-            )}
-
-            {uploadError && (
-              <p className='mt-3 rounded-2xl bg-rose-400/10 p-3 text-sm leading-6 text-rose-300'>
-                {uploadError}
-              </p>
-            )}
-
-            {analysisResult && (
-              <TopPredictionCard analysisResult={analysisResult} />
-            )}
-          </Card>
-
-          <Card>
-            <div className='mb-4 flex items-center justify-between'>
-              <h2 className='text-lg font-bold'>최근 알림</h2>
-              <AlertCircle size={20} className='text-slate-400' />
-            </div>
-
-            {alerts.length === 0 ? (
-              <p className='text-sm text-slate-400'>최근 알림이 없습니다.</p>
-            ) : (
-              <div className='space-y-3'>
-                {alerts.map((alert) => (
-                  <div key={alert.id} className='rounded-2xl bg-slate-800/70 p-4'>
-                    <div className='mb-1 flex items-center justify-between'>
-                      <p className='font-semibold'>{alert.title}</p>
-                      <span className='text-xs text-slate-500'>
-                        {formatTime(alert.created_at)}
-                      </span>
-                    </div>
-                    <p className='text-sm leading-5 text-slate-400'>
-                      {alert.message}
-                    </p>
-                  </div>
-                ))}
-              </div>
-            )}
-          </Card>
-        </>
-      )}
-    </main>
-  )
-}
-
-function TopPredictionCard({ analysisResult }) {
-  const predictions = getTopPredictions(analysisResult)
-
-  return (
-    <div className='mt-4 rounded-[28px] bg-slate-950/50 p-5'>
-      <div className='mb-4 flex items-center gap-3'>
-        <div className='flex h-11 w-11 items-center justify-center rounded-full bg-blue-400/15 text-blue-200'>
-          <Baby size={24} />
-        </div>
-        <div>
-          <p className='text-xs font-semibold text-blue-200'>AI 분석 결과</p>
-          <h3 className='text-lg font-bold text-white'>현재 아기가 우는 이유</h3>
-        </div>
+    <section aria-label="최근 분석 흐름" className="rounded-3xl border border-slate-700/60 bg-slate-900/60 p-5">
+      <div className="flex items-center justify-between gap-2"><div><h2 className="font-bold">최근 분석 흐름</h2><p className="mt-1 text-xs text-slate-400">{history.length ? `최근 ${history.length}건 기준 · 분석 횟수` : '분석 기록이 쌓이면 흐름을 보여드려요'}</p></div>
+        <button aria-label="분석 새로고침" disabled={refreshing} onClick={() => loadOverview()} className="rounded-xl bg-slate-800 p-2.5 text-slate-300 disabled:opacity-40"><RefreshCw size={16} className={refreshing ? 'animate-spin' : ''} /></button></div>
+      {errors.history && <p role="alert" className="mt-3 text-sm text-amber-200">최근 기록을 갱신하지 못했어요.<button className="ml-2 underline" onClick={() => loadOverview()}>다시 시도</button></p>}
+      {breakdown.length > 0 && <>
+        <div className="mt-4 flex h-2.5 overflow-hidden rounded-full bg-slate-800" aria-hidden="true">{breakdown.map(item => <div key={item.key} className={item.color} style={{ width: `${item.count / history.length * 100}%` }} />)}</div>
+        <div className="mt-3 flex flex-wrap gap-x-4 gap-y-2">{breakdown.map(item => <span key={item.key} className="flex items-center gap-1.5 text-xs text-slate-300"><span aria-hidden="true" className={`h-2 w-2 rounded-full ${item.color}`} />{item.label}<strong className="tabular-nums text-white">{item.count}</strong></span>)}</div>
+      </>}
+      <div id="analysis-history" className="mt-5 border-t border-slate-800 pt-4"><h3 className="mb-3 text-sm font-semibold">분석 기록</h3>
+        {initialLoading && <p role="status" className="text-sm text-slate-400">기록을 불러오는 중…</p>}
+        {!initialLoading && !errors.history && history.length === 0 && <p className="text-sm text-slate-400">아직 분석 기록이 없어요.</p>}
+        <ol className="space-y-3">{shown.map(item => {
+          const status = babyStatus(item), value = score(item.confidence)
+          return <li key={item.id} className="flex items-start gap-3"><span aria-hidden="true" className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-slate-800 text-lg">{status.icon}</span><div className="min-w-0 flex-1"><div className="flex items-baseline justify-between gap-2"><p className="text-sm font-semibold">{status.label}</p><span className="text-xs tabular-nums text-slate-400">{value === null ? '점수 없음' : `${value}%`}</span></div><p className="mt-1 text-[11px] text-slate-500">{formatAnalysisTime(analysisTime(item))}</p></div></li>
+        })}</ol>
+        {history.length > 4 && <button onClick={() => setExpanded(v => !v)} className="mt-4 flex w-full items-center justify-center gap-1 rounded-xl bg-slate-800/80 py-2.5 text-xs text-slate-300">{expanded ? '기록 접기' : `분석 기록 ${history.length}건 모두 보기`}<ChevronDown size={14} className={expanded ? 'rotate-180' : ''} /></button>}
       </div>
+    </section>
 
-      <div className='grid grid-cols-2 gap-3'>
-        {predictions.map((item, index) => (
-          <div
-            key={item.emotion + index}
-            className='rounded-3xl border border-slate-700/70 bg-slate-900/80 p-4'
-          >
-            <div className='mb-3 flex items-center justify-between'>
-              <div className='flex h-12 w-12 items-center justify-center rounded-2xl bg-white/10 text-2xl'>
-                {getEmotionIcon(item.need || item.emotion)}
-              </div>
-              <span className='rounded-full bg-blue-400/10 px-2 py-1 text-[11px] font-semibold text-blue-200'>
-                TOP {index + 1}
-              </span>
-            </div>
+    <Link to="/reviews" className="flex items-center justify-between gap-3 rounded-2xl border border-blue-300/15 bg-blue-400/5 p-4"><div><p className="text-sm font-semibold text-blue-200">지난 12시간 돌아보기</p><p className="mt-1 text-xs leading-5 text-slate-400">알림이 왔던 상황을 모아 보고 실제 상태를 알려주세요.</p></div><ArrowRight size={18} className="shrink-0 text-blue-300" /></Link>
 
-            <p className='text-sm font-bold text-blue-200'>
-              {toUserFriendlyEmotion(item.emotion)}
-            </p>
+    <section aria-label="라이브 확인" className="rounded-3xl border border-slate-700/60 bg-slate-900/60 p-5">
+      <div className="flex items-center gap-3"><div className="rounded-xl bg-slate-800 p-3 text-blue-200"><Camera size={21} /></div><div><h2 className="font-bold">직접 모습 확인하기</h2><p className="mt-1 text-xs text-slate-400">{errors.live ? '연결 상태를 확인하지 못했어요' : liveSessions.length ? `연결 가능한 홈캠 ${liveSessions.length}개` : '현재 연결된 홈캠이 없어요'}</p></div></div>
+      <div className="mt-4 grid grid-cols-2 gap-2"><Link to="/live" className="rounded-xl bg-slate-800 py-3 text-center text-sm font-semibold">라이브 보기</Link><Link to="/camera-host" className="rounded-xl border border-slate-700 py-3 text-center text-sm text-slate-300">홈캠 시작</Link></div>
+    </section>
 
-            <p className='mt-1 text-3xl font-light text-white'>
-              {Math.round((item.confidence || 0) * 100)}
-              <span className='ml-1 text-base text-slate-400'>%</span>
-            </p>
-          </div>
-        ))}
-      </div>
-
-      <p className='mt-4 text-xs leading-5 text-slate-400'>
-        AI가 가능성이 높은 상태 2가지를 제시합니다. 보호자는 실제 상황을 함께 보고 판단할 수 있습니다.
-      </p>
-    </div>
-  )
-}
-
-function getTopPredictions(result) {
-  if (!result) {
-    return []
-  }
-
-  if (result.topPredictions?.length > 0) {
-    return result.topPredictions.slice(0, 2)
-  }
-
-  if (result.top_predictions?.length > 0) {
-    return result.top_predictions.slice(0, 2)
-  }
-
-  return [
-    {
-      emotion: result.emotion,
-      confidence: result.confidence,
-      need: result.need,
-      message: result.message,
-    },
-  ]
+    <section aria-label="영상으로 분석하기" className="rounded-3xl border border-slate-700/60 bg-slate-900/60 p-5">
+      <div className="flex items-center gap-2"><Video size={18} className="text-blue-300" /><h2 className="font-bold">영상으로 분석하기</h2></div>
+      <p className="mt-2 text-sm leading-6 text-slate-400">저장된 영상으로도 아이의 상태를 확인할 수 있어요.</p>
+      <input ref={fileInputRef} type="file" aria-label="분석할 영상 선택" accept="video/*" className="hidden" onChange={handleVideoSelected} />
+      <button disabled={uploading} onClick={() => fileInputRef.current?.click()} className="mt-4 flex w-full items-center justify-center gap-2 rounded-xl bg-blue-600 py-3 text-sm font-semibold disabled:opacity-40"><Upload size={16} />{uploading ? '영상 분석 중…' : '영상 선택하여 분석'}</button>
+      {uploadMessage && <p role="status" className="mt-3 text-sm leading-6 text-blue-200">{uploadMessage}</p>}
+      {uploadError && <p role="alert" className="mt-3 text-sm text-red-300">{uploadError}</p>}
+      {analysisResult && <a href="#baby-status" className="mt-3 block text-sm text-blue-300 underline">맨 위에서 분석 결과 보기 ↑</a>}
+    </section>
+  </main>
 }
 
 async function waitForInferenceCompleted(requestId, options = {}) {
@@ -559,7 +221,7 @@ async function waitForInferenceCompleted(requestId, options = {}) {
     const status = await getInferenceStatus(requestId, { signal })
 
     if (status.status === 'completed') {
-      onProgress('분석이 완료되어 결과를 불러오는 중입니다...')
+      onProgress('분석 결과를 불러오고 있어요.')
       return getInferenceResult(requestId, { signal })
     }
 
@@ -568,9 +230,9 @@ async function waitForInferenceCompleted(requestId, options = {}) {
     }
 
     if (status.status === 'processing') {
-      onProgress('AI 분석 작업을 처리 중입니다...')
+      onProgress('아이의 상태를 분석하고 있어요.')
     } else {
-      onProgress('분석 대기열에서 순서를 기다리는 중입니다...')
+      onProgress('분석을 기다리고 있어요.')
     }
 
     await abortableDelay(intervalMs, signal)
@@ -578,64 +240,3 @@ async function waitForInferenceCompleted(requestId, options = {}) {
 
   throw new Error('분석 작업 시간이 초과되었습니다.')
 }
-
-function toUserFriendlyEmotion(value) {
-  if (!value) return '분석 중'
-
-  const mapping = {
-    배고픔: '배고파요',
-    잠와요: '잠와요',
-    피곤함: '잠와요',
-    불편함: '불편해요',
-    '안정 상태': '괜찮아요',
-    안정상태: '괜찮아요',
-  }
-
-  return mapping[value] || value
-}
-
-function getEmotionIcon(value) {
-  const key = String(value || '')
-
-  if (key.includes('feeding') || key.includes('배고')) {
-    return '🍼'
-  }
-
-  if (key.includes('sleep') || key.includes('잠') || key.includes('피곤')) {
-    return '🌙'
-  }
-
-  if (key.includes('care') || key.includes('불편')) {
-    return '🌡️'
-  }
-
-  if (key.includes('stable') || key.includes('안정')) {
-    return '😊'
-  }
-
-  return '👶'
-}
-
-function sleep(ms) {
-  return new Promise((resolve) => {
-    setTimeout(resolve, ms)
-  })
-}
-
-function formatTime(value) {
-  if (!value) return ''
-
-  const date = new Date(value)
-
-  if (Number.isNaN(date.getTime())) {
-    return ''
-  }
-
-  return date.toLocaleTimeString('ko-KR', {
-    timeZone: 'Asia/Seoul',
-    hour: '2-digit',
-    minute: '2-digit',
-  })
-}
-
-export default HomePage

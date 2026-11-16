@@ -13,7 +13,6 @@ import ReviewPage from '../pages/ReviewPage'
 import { useAuth } from '../contexts/AuthContext'
 
 import CameraHostPage from '../pages/CameraHostPage'
-import EmotionPage from '../pages/EmotionPage'
 import HomePage from '../pages/HomePage'
 import LivePage from '../pages/LivePage'
 import SettingsPage from '../pages/SettingsPage'
@@ -48,7 +47,7 @@ function AppRouter() {
         <Route path="/" element={<HomePage />} />
         <Route path="/live" element={<LivePage />} />
         <Route path="/camera-host" element={<CameraHostPage />} />
-        <Route path="/emotion" element={<EmotionPage />} />
+        <Route path="/emotion" element={<Navigate to="/" replace />} />
         <Route path="/settings" element={<SettingsPage />} />
         <Route path="/notifications" element={<NotificationsPage />} />
         <Route path="/reviews" element={<ReviewPage />} />
