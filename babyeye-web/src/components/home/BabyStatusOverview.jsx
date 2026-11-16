@@ -14,7 +14,7 @@ export default function BabyStatusOverview({ result, loading, unavailable }) {
     </div>
     {result ? <>
       <div className="flex items-center gap-4"><span aria-hidden="true" className="flex h-16 w-16 shrink-0 items-center justify-center rounded-2xl bg-white/5 text-4xl">{status.icon}</span>
-        <div><p className="text-sm text-blue-200">{status.label}</p><h2 className="mt-1 text-xl font-bold leading-snug tracking-tight">{status.title}</h2></div>
+        <div><p className="text-sm text-blue-200">{status.label}</p><h2 className="mt-1 break-keep text-xl font-bold leading-snug tracking-tight">{status.title}</h2></div>
       </div>
       <p className="mt-4 text-sm leading-6 text-slate-300">{result.message || status.hint}</p>
       <p className="mt-3 flex items-center gap-1.5 text-xs text-slate-400"><Clock3 size={13} />{formatAnalysisTime(time)} 분석</p>
@@ -22,7 +22,7 @@ export default function BabyStatusOverview({ result, loading, unavailable }) {
         const state = babyStatus(item), value = score(item.confidence)
         return <div key={`${state.key}:${i}`} className="rounded-2xl border border-white/5 bg-black/15 p-3">
           <p className="text-[10px] text-slate-400">{i === 0 ? '가장 높은 예측' : '함께 살펴볼 상태'}</p>
-          <div className="mt-2 flex items-center justify-between gap-1"><p className="text-sm font-semibold">{state.icon} {state.label}</p><p className="text-lg font-bold tabular-nums">{value === null ? '—' : `${value}%`}</p></div>
+          <div className="mt-2 flex flex-wrap items-center justify-between gap-x-2 gap-y-1"><p className="whitespace-nowrap text-[13px] font-semibold">{state.icon} {state.label}</p><p className="ml-auto text-lg font-bold tabular-nums">{value === null ? '—' : `${value}%`}</p></div>
         </div>
       })}</div>
       <p className="mt-2 text-[10px] leading-4 text-slate-500">점수는 AI의 예측값이에요. 당시 아이의 모습과 함께 확인해 주세요.</p>
