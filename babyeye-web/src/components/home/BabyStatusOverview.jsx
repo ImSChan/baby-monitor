@@ -30,6 +30,6 @@ export default function BabyStatusOverview({ result, loading, unavailable }) {
       <CareContextNote context={result.careContext}/>
     </> : <div className="py-3"><span className="text-4xl" aria-hidden="true">👶</span><h2 className="mt-3 text-xl font-bold">{loading ? '아이의 상태를 불러오고 있어요' : unavailable ? '분석 결과를 불러오지 못했어요' : '첫 분석을 기다리고 있어요'}</h2><p className="mt-2 text-sm leading-6 text-slate-400">{unavailable ? '연결 상태를 확인하고 다시 시도해 주세요.' : '홈캠 분석을 시작하거나 영상을 올리면 여기에 결과를 모아 보여드려요.'}</p>
       {!loading && <Link to="/camera-host" className="mt-4 inline-flex rounded-xl bg-blue-600 px-4 py-3 text-sm font-semibold">홈캠 분석 시작</Link>}</div>}
-    {result && <Link to="/feedback" className="mt-4 flex items-center justify-between border-t border-white/10 pt-4 text-sm font-medium text-blue-200">실제 상태 알려주기<ArrowUpRight size={17} /></Link>}
+    {result && <Link to="/notifications" className="mt-4 flex items-center justify-between border-t border-white/10 pt-4 text-sm font-medium text-blue-200">알림에서 실제 상태 알려주기<ArrowUpRight size={17} /></Link>}
   </section>
 }

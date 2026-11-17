@@ -90,9 +90,9 @@ function ReviewContent() {
         <p className="text-sm text-slate-400">{timeText(item.createdAt)}</p>
         <h2 className="font-bold">{item.result.emotion} 감지</h2>
         <p className="text-sm text-slate-300">{item.result.message || '동일 상태가 3회 연속 감지됐어요.'}</p>
-        <button className="rounded-xl bg-blue-600 px-4 py-3 text-sm" onClick={() => setOpen(open === item.id ? null : item.id)}>{open === item.id ? '접기' : item.feedback ? '응답 완료 · 확인/수정' : '당시 상태 알려주기'}</button>
+        <button className="rounded-xl bg-blue-600 px-4 py-3 text-sm" onClick={() => setOpen(open === item.id ? null : item.id)}>{open === item.id ? '접기' : (item.response || item.feedback) ? '응답 완료 · 확인/수정' : '당시 상태 알려주기'}</button>
         {open === item.id && <ReviewEditor eventId={item.id} onSaved={() => {
-          apiGet(`/api/push/events/${item.id}`).then(updated => setData(current => current && ({ ...current, items: current.items.map(row => row.id === item.id ? { ...row, feedback: updated.feedback } : row) }))).catch(() => {})
+          apiGet(`/api/push/events/${item.id}`).then(updated => setData(current => current && ({ ...current, items: current.items.map(row => row.id === item.id ? { ...row, feedback: updated.feedback, response: updated.response } : row) }))).catch(() => {})
         }} />}
       </article>)}
       {data.total > data.items.length && <p className="text-sm text-amber-200">최근 100개 상황을 표시했어요. 나머지는 알림 목록에서 확인할 수 있어요.</p>}

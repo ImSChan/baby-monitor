@@ -18,7 +18,7 @@ import CarePage from '../pages/CarePage'
 import LivePage from '../pages/LivePage'
 import SettingsPage from '../pages/SettingsPage'
 import LoginPage from '../pages/LoginPage'
-import FeedbackPage from '../pages/FeedbackPage'
+
 
 function ProtectedRoute() {
   const { user, loading } = useAuth()
@@ -54,7 +54,7 @@ function AppRouter() {
         <Route path="/notifications" element={<NotificationsPage />} />
         <Route path="/reviews" element={<ReviewPage />} />
         <Route path="/notifications/:eventId" element={<NotificationResultPage />} />
-        <Route path="/feedback" element={<FeedbackPage />} />
+        <Route path="/feedback" element={<Navigate to="/notifications" replace />} />
       </Route>
 
       <Route path="*" element={<Navigate to="/" replace />} />

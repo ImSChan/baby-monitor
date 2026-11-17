@@ -15,7 +15,7 @@ from test_training_eligibility import training_env
 
 
 @pytest.fixture
-def scenario(db, tmp_path, monkeypatch):
+def scenario(db, tmp_path, monkeypatch, request):
     monkeypatch.setattr(inference, 'UPLOAD_ROOT', tmp_path)
     with Session(db) as session:
         session.add(NotificationPreference(user_id=1, enabled=True, enabled_at=kst_now() - timedelta(days=2)))
@@ -24,7 +24,7 @@ def scenario(db, tmp_path, monkeypatch):
     now = kst_now() - timedelta(minutes=20)
     ids = []
     # 21 records -> one feeding episode and one sleep episode, no stable alerts.
-    for i, state in enumerate(['stable'] * 5 + ['feeding'] * 8 + ['sleep'] * 5 + ['stable'] * 3):
+    for i, state in enumerate(getattr(request, 'param', ['stable'] * 5 + ['feeding'] * 8 + ['sleep'] * 5 + ['stable'] * 3)):
         rid = str(uuid4()); directory = tmp_path / rid; directory.mkdir()
         with Session(db) as session:
             event = EmotionEvent(user_id=1, emotion=state, need=state, confidence=.9,
@@ -43,16 +43,14 @@ def scenario(db, tmp_path, monkeypatch):
 
 
 def context(client, auth, eid):
-    response = client.get(f'/api/reviews/events/{eid}/context', headers=auth(1))
+    response = client.get(f'/api/reviews/events/{eid}/feedback', headers=auth(1))
     assert response.status_code == 200, response.text
     return response.json()
 
 
 def batch(data, rows=None, label='sleep', action=None):
-    rows = rows or [r for r in data['items'] if r['requestId'] == data['anchorRequestId']]
     return {'action_id': action or str(uuid4()), 'event_id': data['eventId'],
-        'request_ids': [r['requestId'] for r in rows], 'label': label,
-        'expected_versions': {r['requestId']: r['feedback']['updated_at'] if r['feedback'] else None for r in rows}}
+            'label': label, 'scope_signature': data['scopeSignature']}
 
 
 def test_mock_streak_generates_real_outbox_and_firebase_message(db, scenario, monkeypatch, push_enabled):
@@ -91,9 +89,8 @@ def test_window_and_context_are_account_and_camera_scoped(client, auth, db, scen
     assert client.get('/api/reviews', headers=auth(2)).json()['total'] == 0
     assert client.get(f'/api/reviews/events/{ids[0]}/context', headers=auth(2)).status_code == 404
     data = context(client, auth, ids[0])
-    anchor = next(i for i, row in enumerate(data['items']) if row['requestId'] == data['anchorRequestId'])
-    assert anchor == 7 and len(data['items']) == 18  # 7 before + anchor + 10 after
-    assert all(row['available'] and row['hasAudio'] for row in data['items'])
+    assert data['matchedCount'] == 3
+    assert client.get(f'/api/reviews/events/{ids[0]}/context', headers=auth(1)).status_code == 410
     assert client.get('/api/reviews?end=2026-01-01T10:00:00', headers=auth(1)).status_code == 422
     end = (kst_now() - timedelta(days=3)).replace(tzinfo=KST).isoformat()
     assert client.get('/api/reviews', params={'end': end}, headers=auth(1)).json()['total'] == 0
@@ -107,9 +104,10 @@ def test_single_choice_idempotency_modify_and_undo(client, auth, scenario, db):
     assert first.status_code == 200, first.text
     assert client.post('/api/reviews/feedback', headers=auth(1), json=payload).json() == first.json()
     saved = context(client, auth, eid)
-    row = next(r for r in saved['items'] if r['requestId'] == saved['anchorRequestId'])
-    assert row['feedback']['corrected_label'] == 'sleep' and row['feedback']['feedback_type'] == 'incorrect'
-    assert row['feedback']['learning_group'] == row['episodeKey']
+    with Session(db) as session:
+        feedback = session.exec(select(InferenceFeedback)).all()
+        assert len(feedback) == 3
+        assert all(f.corrected_label == 'sleep' and f.feedback_type == 'incorrect' and f.learning_group for f in feedback)
     # Lost/stale browser cannot overwrite without the current version.
     payload['action_id'] = str(uuid4())
     assert client.post('/api/reviews/feedback', headers=auth(1), json=payload).status_code == 409
@@ -118,36 +116,27 @@ def test_single_choice_idempotency_modify_and_undo(client, auth, scenario, db):
     assert client.post(undo, headers=auth(2)).status_code == 404
     assert client.post(undo, headers=auth(1)).json() == {'undone': True}
     assert client.post(undo, headers=auth(1)).json() == {'undone': True}
-    row = next(r for r in context(client, auth, eid)['items'] if r['requestId'] == data['anchorRequestId'])
-    assert row['feedback']['corrected_label'] == 'sleep'
+    with Session(db) as session:
+        assert all(f.corrected_label == 'sleep' for f in session.exec(select(InferenceFeedback)).all())
 
 
-def test_range_atomicity_uncertain_and_original_duplicate_protection(client, auth, scenario, db):
-    data = context(client, auth, scenario[0][0]); rows = data['items'][5:10]
-    payload = batch(data, rows, 'uncertain')
+def test_uncertain_locks_and_original_duplicate_protection(client, auth, scenario, db):
+    data = context(client, auth, scenario[0][0])
+    payload = batch(data, label='uncertain')
     assert client.post('/api/reviews/feedback', headers=auth(1), json=payload).status_code == 200
     with Session(db) as session:
         feedback = session.exec(select(InferenceFeedback)).all()
-        assert len(feedback) == 5 and all(f.training_status == 'excluded' for f in feedback)
-        feedback[2].training_status = 'reserved'; session.add(feedback[2]); session.commit()
-    data = context(client, auth, scenario[0][0])
-    response = client.post('/api/reviews/feedback', headers=auth(1), json=batch(data, data['items'][4:11], 'feeding'))
-    assert response.status_code == 409
-    with Session(db) as session:
-        assert len(session.exec(select(InferenceFeedback)).all()) == 5
-    old_payload = {'request_id': rows[0]['requestId'], 'feedback_type': 'correct'}
-    assert client.post('/api/feedback', headers=auth(1), json=old_payload).status_code == 409
+        assert len(feedback) == 3 and all(f.training_status == 'excluded' for f in feedback)
+        feedback[0].training_status = 'reserved'; session.add(feedback[0]); session.commit()
+        rid = feedback[0].request_id
+    assert client.post('/api/feedback', headers=auth(1), json={'request_id': rid, 'feedback_type': 'correct'}).status_code == 409
     assert client.post(f"/api/reviews/feedback/{payload['action_id']}/undo", headers=auth(1)).status_code == 409
 
 
-def test_invalid_ranges_cross_account_and_action_collision(client, auth, scenario, db):
+def test_server_rejects_client_targets_cross_account_and_collision(client, auth, scenario):
     data = context(client, auth, scenario[0][0]); payload = batch(data)
     assert client.post('/api/reviews/feedback', headers=auth(2), json=payload).status_code == 404
-    invalid = batch(data, [data['items'][0], data['items'][2]])
-    assert client.post('/api/reviews/feedback', headers=auth(1), json=invalid).status_code == 422
-    invalid['request_ids'] = [str(uuid4())]
-    assert client.post('/api/reviews/feedback', headers=auth(1), json=invalid).status_code == 422
-    invalid = batch(data); invalid['request_ids'] *= 2
+    invalid = {**payload, 'request_ids': [str(uuid4())]}
     assert client.post('/api/reviews/feedback', headers=auth(1), json=invalid).status_code == 422
     assert client.post('/api/reviews/feedback', headers=auth(1), json=payload).status_code == 200
     payload['label'] = 'care'
@@ -159,7 +148,7 @@ def test_mock_feedback_never_becomes_training_data(client, auth, scenario, db, m
     assert client.post('/api/reviews/feedback', headers=auth(1), json=batch(data)).status_code == 200
     monkeypatch.setattr(training_worker, 'INFERENCE_DATA_DIR', scenario[1])
     with Session(db) as session:
-        assert training_worker.check_sample(session.exec(select(InferenceFeedback)).one()) is None
+        assert training_worker.check_sample(session.exec(select(InferenceFeedback)).first()) is None
 
 
 def test_schedule_defaults_validation_and_12_hour_pair(client, auth):
@@ -292,10 +281,71 @@ def test_bulk_spanning_predicted_episodes_counts_as_one_observation(training_env
         metadata.pop('synthetic')
         path.write_text(json.dumps(metadata), encoding='utf-8')
     data = context(client, auth, scenario[0][0])
-    assert len({row['episodeKey'] for row in data['items']}) >= 3
-    assert client.post('/api/reviews/feedback', headers=auth(1), json=batch(data, data['items'], 'feeding')).status_code == 200
+    assert client.post('/api/reviews/feedback', headers=auth(1), json=batch(data, label='feeding')).status_code == 200
     add_feedback(db, root, 'sleep', 3)
     assert training_worker.scan_and_create_jobs() == 0
     add_feedback(db, root, 'feeding', 2)
     assert training_worker.scan_and_create_jobs() == 1
     assert training_worker.scan_and_create_jobs() == 0
+
+
+@pytest.mark.parametrize('scenario', [['feeding', 'stable', 'feeding', 'feeding', 'sleep', 'feeding', 'feeding', 'feeding']], indirect=True)
+def test_mixed_example_labels_only_six_hunger_records(client, auth, scenario, db):
+    assert len(scenario[0]) == 1
+    data = context(client, auth, scenario[0][0])
+    assert data['matchedCount'] == 6
+    response = client.post('/api/reviews/feedback', headers=auth(1), json=batch(data, label='sleep'))
+    assert response.status_code == 200, response.text
+    assert response.json()['count'] == 6
+    with Session(db) as session:
+        rows = session.exec(select(InferenceFeedback)).all()
+        assert len(rows) == 6
+        assert all(row.predicted_label == 'feeding' and row.corrected_label == 'sleep' for row in rows)
+        assert len({change['id'] for change in session.exec(select(ReviewAction)).one().changes}) == 6
+    assert client.get(f"/api/push/events/{data['eventId']}", headers=auth(1)).json()['response']['label'] == 'sleep'
+
+
+@pytest.mark.parametrize('scenario', [['feeding'] * 30], indirect=True)
+def test_twenty_record_cap_and_no_future_records(client, auth, scenario, db):
+    eid = scenario[0][0]
+    assert context(client, auth, eid)['matchedCount'] == 3
+    with Session(db) as session:
+        last = session.exec(select(ReviewAnalysis).order_by(ReviewAnalysis.id.desc())).first()
+        event = session.get(NotificationEvent, eid); event.request_id = last.request_id
+        session.add(event); session.commit()
+    assert context(client, auth, eid)['matchedCount'] == 20
+
+
+def test_protect_legacy_feedback_and_unavailable_metadata(client, auth, scenario, db):
+    eid = scenario[0][0]
+    with Session(db) as session:
+        from app.routers.reviews import context_rows
+        _, rows = context_rows(session, eid, 1)
+        legacy = InferenceFeedback(user_id=1, request_id=rows[0].request_id, predicted_label='feeding',
+            corrected_label='care', feedback_type='incorrect')
+        legacy_rid = rows[0].request_id
+        session.add(legacy); session.commit()
+        (scenario[1] / rows[1].request_id / 'metadata.json').unlink()
+    data = context(client, auth, eid)
+    result = client.post('/api/reviews/feedback', headers=auth(1), json=batch(data))
+    assert result.status_code == 200, result.text
+    assert result.json()['count'] == 1
+    with Session(db) as session:
+        assert session.exec(select(InferenceFeedback).where(InferenceFeedback.request_id == legacy_rid)).one().corrected_label == 'care'
+
+
+def test_linked_cohort_is_frozen_even_with_pending_siblings(client, auth, scenario, db):
+    from app.models import TrainingJob, TrainingJobFeedback
+    eid = scenario[0][0]
+    response = client.post('/api/reviews/feedback', headers=auth(1), json=batch(context(client, auth, eid)))
+    assert response.status_code == 200
+    action_id = response.json()['actionId']
+    with Session(db) as session:
+        feedback = session.exec(select(InferenceFeedback)).all()
+        job = TrainingJob(user_id=1, sample_count=1); session.add(job); session.flush()
+        feedback[0].training_status = 'reserved'; session.add(feedback[0])
+        session.add(TrainingJobFeedback(feedback_id=feedback[0].id, training_job_id=job.id)); session.commit()
+    assert client.post('/api/reviews/feedback', headers=auth(1), json=batch(context(client, auth, eid), label='care')).status_code == 409
+    assert client.post(f'/api/reviews/feedback/{action_id}/undo', headers=auth(1)).status_code == 409
+    with Session(db) as session:
+        assert all(f.corrected_label == 'sleep' for f in session.exec(select(InferenceFeedback)).all())

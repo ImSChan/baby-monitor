@@ -7,7 +7,7 @@ const require = createRequire(new URL('../../work/review-browser/package.json', 
 const { chromium } = require('playwright')
 const output = resolve(process.env.REVIEW_TEST_OUTPUT || 'work/review-browser/results')
 await mkdir(output, { recursive: true })
-const browser = await chromium.launch({ channel: 'msedge', headless: true })
+const browser = await chromium.launch({ executablePath: 'C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe', headless: true })
 try {
   const page = await browser.newPage({ viewport: { width: 390, height: 844 } })
   const errors = []
@@ -41,19 +41,13 @@ try {
   await page.screenshot({ path: resolve(output, '01-mock-push-banner.png'), fullPage: true })
   await page.getByRole('link', { name: '알림 확인', exact: true }).click()
   await page.getByRole('button', { name: '졸렸어요', exact: true }).click()
-  await page.getByText('1개 분석에 반영했어요.').waitFor()
+  await page.getByText('3개 분석에 일괄 반영했어요.').waitFor()
   await page.getByRole('button', { name: '실행 취소' }).click()
   await page.getByText('이전 응답으로 되돌렸어요.').waitFor()
-  await page.getByRole('button', { name: '구간 선택하여 일괄 응답' }).click()
-  await page.getByLabel('분석 시점 이동').fill('5')
-  await page.getByRole('button', { name: '여기부터' }).click()
-  await page.getByLabel('분석 시점 이동').fill('9')
-  await page.getByRole('button', { name: '여기까지' }).click()
+  if (await page.getByRole('slider').count()) throw new Error('Range control remains')
   await page.getByRole('button', { name: '배고팠어요', exact: true }).click()
-  await page.screenshot({ path: resolve(output, '02-range-selection.png'), fullPage: true })
-  await page.getByRole('button', { name: '선택한 5개에 적용' }).click()
-  await page.getByText('5개 분석에 반영했어요.').waitFor()
-  await page.screenshot({ path: resolve(output, '03-range-saved.png'), fullPage: true })
+  await page.getByText('3개 분석에 일괄 반영했어요.').waitFor()
+  await page.screenshot({ path: resolve(output, '02-automatic-feedback-saved.png'), fullPage: true })
   await fetch('http://127.0.0.1:8791/mock/remind', { method: 'POST' })
   const digestOutbox = await (await fetch('http://127.0.0.1:8791/mock/outbox')).json()
   const digest = digestOutbox.items.find(message => message.data.kind === 'review')
@@ -73,7 +67,7 @@ try {
   if (other.status() !== 401) throw new Error('Invalid JWT was accepted')
   if (errors.length) throw new Error(errors.join('\n'))
   const result = { status: 'passed', analyses: 21, immediateNotifications: 2, scheduledNotifications: 1,
-    rangeFeedbackCount: 5, singleFeedbackAndUndo: true, nativeBridge: 'mock', FCMTransport: 'captured', pageErrors: errors }
+    automaticFeedbackCount: 3, oneTapFeedbackAndUndo: true, nativeBridge: 'mock', FCMTransport: 'captured', pageErrors: errors }
   await writeFile(resolve(output, 'browser-test-results.json'), JSON.stringify(result, null, 2))
   console.log(JSON.stringify(result))
 } finally { await browser.close() }

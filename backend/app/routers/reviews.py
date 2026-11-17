@@ -1,4 +1,4 @@
-"""Account-scoped episode review and transactional range feedback."""
+"""Account-scoped notification review and server-selected feedback."""
 import hashlib
 import json
 from datetime import datetime, timedelta
@@ -6,7 +6,7 @@ from typing import Literal
 from uuid import UUID
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from fastapi import APIRouter, Depends, HTTPException, Query
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 from sqlalchemy.exc import IntegrityError
 from sqlmodel import Session, select
 from app.database import get_session
@@ -15,7 +15,7 @@ from app.models import ReviewAnalysis, ReviewSchedule, ReviewAction, Notificatio
 from app.routers.feedback import serialize_feedback, normalize_feedback
 from app.routers.inference import get_owned_request_metadata
 from app.services.notification_service import lock_notification_user
-from app.services.review_service import review_events, is_episode, iso
+from app.services.review_service import review_events, is_episode, iso, event_responses
 from app.services.training_policy import normalize_feedback_label
 from app.utils.time import kst_now, KST
 
@@ -77,18 +77,20 @@ def context_rows(session, eid, uid):
     anchor = session.exec(select(ReviewAnalysis).where(
         ReviewAnalysis.request_id == event.request_id, ReviewAnalysis.user_id == uid)).first()
     if not anchor:
-        raise HTTPException(409, '이전 분석 기록 색인이 필요합니다. 관리자에게 문의해주세요.')
-    # ID order matches ingestion; timestamp order and ID tie-break stay deterministic.
-    from sqlalchemy import or_, and_
-    base = select(ReviewAnalysis).where(ReviewAnalysis.user_id == uid,
-                                        ReviewAnalysis.camera_key == anchor.camera_key)
-    before = session.exec(base.where(or_(ReviewAnalysis.captured_at < anchor.captured_at,
-        and_(ReviewAnalysis.captured_at == anchor.captured_at, ReviewAnalysis.id < anchor.id)))
-        .order_by(ReviewAnalysis.captured_at.desc(), ReviewAnalysis.id.desc()).limit(10)).all()
-    after = session.exec(base.where(or_(ReviewAnalysis.captured_at > anchor.captured_at,
-        and_(ReviewAnalysis.captured_at == anchor.captured_at, ReviewAnalysis.id > anchor.id)))
-        .order_by(ReviewAnalysis.captured_at, ReviewAnalysis.id).limit(10)).all()
-    return event, list(reversed(before)) + [anchor] + list(after)
+        raise HTTPException(409, '분석 기록 색인이 필요합니다. 관리자에게 문의해주세요.')
+    recent = session.exec(select(ReviewAnalysis).where(
+        ReviewAnalysis.user_id == uid, ReviewAnalysis.camera_key == anchor.camera_key,
+        ReviewAnalysis.id <= anchor.id, ReviewAnalysis.captured_at <= anchor.captured_at,
+        ReviewAnalysis.captured_at >= anchor.captured_at - timedelta(hours=12))
+        .order_by(ReviewAnalysis.captured_at.desc(), ReviewAnalysis.id.desc()).limit(20)).all()
+    state = normalize_feedback_label(anchor.state)
+    return event, list(reversed([row for row in recent if normalize_feedback_label(row.state) == state]))
+
+
+def scope_signature(rows, feedback):
+    snapshot = [(row.request_id, current_version(feedback.get(row.request_id)),
+                 feedback[row.request_id].training_status if row.request_id in feedback else None) for row in rows]
+    return hashlib.sha256(json.dumps(snapshot).encode()).hexdigest()
 
 
 def feedback_map(session, rows, uid):
@@ -110,38 +112,33 @@ def list_review(end: datetime | None = None, offset: int = Query(0, ge=0),
     page = events[offset:offset + limit]
     feedback = {f.request_id: f for f in session.exec(select(InferenceFeedback).where(
         InferenceFeedback.user_id == uid, InferenceFeedback.request_id.in_([e.request_id for e in page]))).all()} if page else {}
+    responses = event_responses(session, uid)
     return {'windowStart': iso(start), 'windowEnd': iso(end), 'total': len(events),
         'items': [{'id': e.id, 'requestId': e.request_id, 'result': e.result, 'createdAt': iso(e.created_at),
+                   'response': responses.get(e.id),
                    'feedback': serialize_feedback(feedback[e.request_id]) if e.request_id in feedback else None}
                   for e in page], 'offset': offset, 'limit': limit}
 
 
 @router.get('/events/{eid}/context')
-def get_context(eid: int, session: Session = Depends(get_session), uid: int = Depends(get_current_user_id)):
-    event, rows = context_rows(session, eid, uid)
+def removed_context(eid: int, session: Session = Depends(get_session), uid: int = Depends(get_current_user_id)):
+    owned_event(session, eid, uid)
+    raise HTTPException(410, '개별 분석 피드백은 종료되었습니다. 알림에서 당시 상태를 선택해주세요.')
+
+
+@router.get('/events/{eid}/feedback')
+def feedback_summary(eid: int, session: Session = Depends(get_session), uid: int = Depends(get_current_user_id)):
+    _, rows = context_rows(session, eid, uid)
     feedback = feedback_map(session, rows, uid)
-    items = []
-    for row in rows:
-        try:
-            metadata = get_owned_request_metadata(row.request_id, uid)
-            available = metadata.get('status') == 'completed'
-        except HTTPException:
-            metadata, available = {}, False
-        items.append({'requestId': row.request_id, 'capturedAt': iso(row.captured_at),
-            'result': row.result, 'state': row.state, 'episodeKey': row.episode_key,
-            'available': available, 'hasFrame': bool(metadata.get('selected_frame_path')),
-            'hasAudio': bool(metadata.get('audio_path') or metadata.get('converted_audio_path')),
-            'feedback': serialize_feedback(feedback[row.request_id]) if row.request_id in feedback else None})
-    return {'eventId': eid, 'anchorRequestId': event.request_id, 'items': items}
+    return {'eventId': eid, 'matchedCount': len(rows), 'scopeSignature': scope_signature(rows, feedback), 'response': event_responses(session, uid).get(eid)}
 
 
 class BatchFeedback(BaseModel):
+    model_config = ConfigDict(extra='forbid')
     action_id: UUID
     event_id: int
-    request_ids: list[UUID] = Field(min_length=1, max_length=21)
     label: Literal['feeding', 'sleep', 'care', 'stable', 'uncertain']
-    # Required for every selected record. Null explicitly means not submitted yet.
-    expected_versions: dict[str, str | None]
+    scope_signature: str = Field(min_length=64, max_length=64)
 
 
 def current_version(feedback):
@@ -158,44 +155,41 @@ def batch_feedback(payload: BatchFeedback, session: Session = Depends(get_sessio
     if old_action:
         if old_action.user_id != uid or old_action.payload_hash != fingerprint:
             raise HTTPException(409, '저장 요청이 충돌했습니다.')
-        return {'actionId': action_id, 'undone': old_action.undone, 'count': len(old_action.changes)}
-    _, context = context_rows(session, payload.event_id, uid)
-    ids = [str(rid) for rid in payload.request_ids]
-    if len(set(ids)) != len(ids):
-        raise HTTPException(422, '중복 분석은 선택할 수 없습니다.')
-    positions = [i for i, row in enumerate(context) if row.request_id in ids]
-    if (len(positions) != len(ids) or positions != list(range(min(positions, default=0), max(positions, default=-1) + 1))):
-        raise HTTPException(422, '같은 카메라의 연속된 구간을 선택해주세요.')
-    rows = [context[i] for i in positions]
+        return {'actionId': action_id, 'undone': old_action.undone, 'count': len(old_action.changes), 'skippedCount': old_action.changes[0].get('skipped_count', 0) if old_action.changes else 0}
+    _, rows = context_rows(session, payload.event_id, uid)
     # Freeze the supervision cohort once any representative is linked to a job.
     # Otherwise a new bulk selection could merge two already-reserved episodes
     # and invalidate a queued/running job's independent-observation counts.
     from app.services.training_data_service import learning_cohorts
-    grouped = session.exec(select(InferenceFeedback).where(InferenceFeedback.user_id == uid,
-        InferenceFeedback.learning_group != None).order_by(InferenceFeedback.created_at, InferenceFeedback.id).with_for_update()).all()
+    grouped = session.exec(select(InferenceFeedback).where(InferenceFeedback.user_id == uid)
+        .order_by(InferenceFeedback.created_at, InferenceFeedback.id).with_for_update()).all()
     cohorts = learning_cohorts(session)
-    selected_episodes = {row.episode_key for row in rows}
-    selected_cohorts = {cohorts[f.id] for f in grouped if f.learning_group in selected_episodes}
     used = set(session.exec(select(TrainingJobFeedback.feedback_id).where(
         TrainingJobFeedback.feedback_id.in_([f.id for f in grouped]))).all()) if grouped else set()
-    if any(f.id in used and cohorts.get(f.id) in selected_cohorts for f in grouped):
-        raise HTTPException(409, '이 상황은 이미 학습에 사용 중이거나 반영되어 변경할 수 없습니다.')
+    frozen = {cohorts.get(f.id) for f in grouped if f.id in used}
+    existing = feedback_map(session, rows, uid)
+    if payload.scope_signature != scope_signature(rows, existing):
+        raise HTTPException(409, '피드백이 변경되었습니다. 새로고침 후 다시 선택해주세요.')
+    own_ids = {change['id'] for action in session.exec(select(ReviewAction).where(
+        ReviewAction.user_id == uid, ReviewAction.undone == False)).all()
+        for change in action.changes if change.get('event_id') == payload.event_id and any(f.id == change['id'] and current_version(f) == change['version'] for f in existing.values())}
     changes = []
+    skipped = 0
     for row in rows:
-        # Durable index is for navigation; original owned completed metadata is
-        # still authoritative for feedback and subsequent training media checks.
-        metadata = get_owned_request_metadata(row.request_id, uid)
-        if metadata.get('status') != 'completed':
-            raise HTTPException(409, '완료된 분석만 피드백할 수 있습니다.')
+        feedback = existing.get(row.request_id)
+        if (any(f.learning_group == row.episode_key and cohorts.get(f.id) in frozen for f in grouped)
+            or (feedback and (feedback.id not in own_ids or feedback.training_status not in {'pending', 'excluded'}))):
+            skipped += 1
+            continue
+        try:
+            metadata = get_owned_request_metadata(row.request_id, uid)
+        except HTTPException:
+            skipped += 1
+            continue
         predicted = (metadata.get('result') or {}).get('emotion')
-        if not isinstance(predicted, str) or not predicted.strip():
-            raise HTTPException(409, '분석 결과를 확인할 수 없습니다.')
-        feedback = session.exec(select(InferenceFeedback).where(
-            InferenceFeedback.request_id == row.request_id).with_for_update()).first()
-        if feedback and (feedback.user_id != uid or feedback.training_status not in {'pending', 'excluded'}):
-            raise HTTPException(409, '학습에 사용 중이거나 반영된 피드백은 변경할 수 없습니다.')
-        if row.request_id not in payload.expected_versions or payload.expected_versions[row.request_id] != current_version(feedback):
-            raise HTTPException(409, '피드백이 변경되었습니다. 새로고침 후 다시 선택해주세요.')
+        if metadata.get('status') != 'completed' or not isinstance(predicted, str) or not predicted.strip():
+            skipped += 1
+            continue
         before = serialize_feedback(feedback) if feedback else None
         label = payload.label
         kind = 'uncertain' if label == 'uncertain' else ('correct' if normalize_feedback_label(predicted) == label else 'incorrect')
@@ -207,14 +201,17 @@ def batch_feedback(payload: BatchFeedback, session: Session = Depends(get_sessio
         feedback.learning_group = row.episode_key
         feedback.updated_at = kst_now()
         session.add(feedback); session.flush()
-        changes.append({'id': feedback.id, 'before': before, 'version': current_version(feedback)})
+        changes.append({'id': feedback.id, 'before': before, 'version': current_version(feedback), 'event_id': payload.event_id, 'label': payload.label})
+    if not changes:
+        raise HTTPException(409, '저장 가능한 분석이 없습니다. 이미 응답했거나 학습에 반영된 기록일 수 있어요.')
+    changes[0]['skipped_count'] = skipped
     session.add(ReviewAction(id=action_id, user_id=uid, payload_hash=fingerprint, changes=changes))
     try:
         session.commit()
     except IntegrityError:
         session.rollback()
         raise HTTPException(409, '다른 요청에서 피드백을 저장했습니다. 새로고침해주세요.')
-    return {'actionId': action_id, 'undone': False, 'count': len(changes)}
+    return {'actionId': action_id, 'undone': False, 'count': len(changes), 'skippedCount': skipped}
 
 
 @router.post('/feedback/{action_id}/undo')
@@ -226,6 +223,17 @@ def undo_feedback(action_id: UUID, session: Session = Depends(get_session), uid:
         raise HTTPException(404, '저장 기록을 찾을 수 없습니다.')
     if action.undone:
         return {'undone': True}
+    # Follow training reservation lock order; a linked sibling freezes its cohort too.
+    grouped = session.exec(select(InferenceFeedback).where(InferenceFeedback.user_id == uid)
+        .order_by(InferenceFeedback.created_at, InferenceFeedback.id).with_for_update()).all()
+    from app.services.training_data_service import learning_cohorts
+    cohorts = learning_cohorts(session)
+    used = set(session.exec(select(TrainingJobFeedback.feedback_id).where(
+        TrainingJobFeedback.feedback_id.in_([f.id for f in grouped]))).all()) if grouped else set()
+    frozen = {cohorts.get(fid) for fid in used}
+    if any(change['id'] in used or (cohorts.get(change['id']) is not None and
+           cohorts.get(change['id']) in frozen) for change in action.changes):
+        raise HTTPException(409, '학습에 사용 중이거나 반영된 상황은 되돌릴 수 없습니다.')
     # Lock all rows before making any changes: undo is all-or-nothing.
     pairs = []
     for change in action.changes:

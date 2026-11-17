@@ -64,7 +64,8 @@ def get_event(event_id: int, session: Session = Depends(get_session),
         InferenceFeedback.request_id == event.request_id,
         InferenceFeedback.user_id == user_id)).first()
     from app.routers.feedback import serialize_feedback
-    return {**serialize_event(event),
+    from app.services.review_service import event_responses
+    return {**serialize_event(event), "response": event_responses(session, user_id).get(event.id),
             "feedback": serialize_feedback(feedback) if feedback else None}
 
 

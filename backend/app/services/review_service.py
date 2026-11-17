@@ -6,7 +6,7 @@ from datetime import datetime, timedelta, timezone
 from uuid import uuid4, uuid5, NAMESPACE_URL
 from zoneinfo import ZoneInfo
 from sqlmodel import Session, select
-from app.models import ReviewAnalysis, ReviewSchedule, NotificationEvent, NotificationPreference, InferenceFeedback
+from app.models import ReviewAnalysis, ReviewSchedule, NotificationEvent, NotificationPreference, InferenceFeedback, ReviewAction
 from app.services.notification_service import lock_notification_user, detection_state
 from app.utils.time import kst_now, KST
 
@@ -95,7 +95,8 @@ def enqueue_reviews(db_engine, now=None):
             answered = set(session.exec(select(InferenceFeedback.request_id).where(
                 InferenceFeedback.user_id == schedule.user_id,
                 InferenceFeedback.request_id.in_([event.request_id for event in events]))).all())
-            pending = sum(event.request_id not in answered for event in events)
+            responses = event_responses(session, uid)
+            pending = sum(event.request_id not in answered and event.id not in responses for event in events)
             if pending == 0:
                 continue
             anchor = events[0]
@@ -108,3 +109,16 @@ def enqueue_reviews(db_engine, now=None):
             count += 1
             session.commit()
     return count
+
+
+def event_responses(session, uid):
+    """Event consent is durable even when the anchor itself was protected."""
+    responses = {}
+    actions = session.exec(select(ReviewAction).where(ReviewAction.user_id == uid,
+        ReviewAction.undone == False).order_by(ReviewAction.created_at, ReviewAction.id)).all()
+    for action in actions:
+        for change in action.changes:
+            eid = change.get('event_id')
+            if eid is not None:
+                responses[eid] = {'actionId': action.id, 'label': change.get('label'), 'count': len(action.changes)}
+    return responses
