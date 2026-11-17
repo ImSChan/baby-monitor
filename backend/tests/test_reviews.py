@@ -349,3 +349,14 @@ def test_linked_cohort_is_frozen_even_with_pending_siblings(client, auth, scenar
     assert client.post(f'/api/reviews/feedback/{action_id}/undo', headers=auth(1)).status_code == 409
     with Session(db) as session:
         assert all(f.corrected_label == 'sleep' for f in session.exec(select(InferenceFeedback)).all())
+
+
+def test_can_answer_again_after_undo_restores_previous_response(client, auth, scenario):
+    eid = scenario[0][0]
+    first = client.post('/api/reviews/feedback', headers=auth(1), json=batch(context(client, auth, eid)))
+    second = client.post('/api/reviews/feedback', headers=auth(1), json=batch(context(client, auth, eid), label='care'))
+    assert first.status_code == second.status_code == 200
+    assert client.post('/api/reviews/feedback/' + second.json()['actionId'] + '/undo', headers=auth(1)).status_code == 200
+    third = client.post('/api/reviews/feedback', headers=auth(1), json=batch(context(client, auth, eid), label='stable'))
+    assert third.status_code == 200, third.text
+    assert third.json()['count'] == 3

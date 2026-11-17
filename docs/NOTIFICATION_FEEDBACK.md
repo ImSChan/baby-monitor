@@ -11,7 +11,7 @@
 서버가 전적으로 대상을 결정하며 클라이언트 request_ids/expected_versions는 422로 거절합니다. 이전 context API는 소유권 확인 후 410을 반환합니다. 새 GET /api/reviews/events/{id}/feedback에서 개수와 동시 수정 검사용 scopeSignature만 받습니다. POST /api/reviews/feedback은 event_id, action_id, label, scope_signature를 받습니다.
 JWT 사용자·원본 완료 메타데이터 소유권을 다시 확인합니다. 다른 알림/기존 개별 피드백, 다른 사람이 수정한 버전, 예약·학습 완료 및 학습에 연결된 전체 cohort는 보호하고 건너뜁니다. 자료가 없는 기록도 건너뛰며 실제 저장 개수와 제외 개수를 반환합니다. 동일 action_id 재전송은 중복 저장하지 않습니다. 실행 취소는 전부 복구 가능할 때만 처리합니다.
 동일 응답에 속한 여러 샘플은 기존 learning_cohorts 로직에서 한 관측으로 계산합니다. 개인화 학습 임계치·미디어 검증·mock 데이터 학습 제외 정책은 유지됩니다. 저장 즉시 학습/가중치 반영을 보장하지 않습니다.
-기존 ReviewAction.changes JSON 각 항목에 event_id/label, 첫 항목에 skipped_count를 추가합니다. 기존 id/before/version은 유지해 이전 데이터와 학습 로직이 호환됩니다. 스키마·데이터 삭제나 신규 마이그레이션은 없습니다. 기존 004_feedback_review.sql까지 적용되어 있어야 하며, 최신 앱의 육아 기록은 기존 006까지 필요합니다. 이미 적용된 DB에 SQL을 재실행할 필요가 없습니다. 구버전 앱의 구간 저장 요청은 실패하므로 웹/앱을 함께 갱신하세요.
+기존 ReviewAction.changes JSON 각 항목에 event_id/label, 첫 항목에 skipped_count를 추가합니다. 실행 취소로 이전 응답을 복원할 때는 원래 version을 보존하고 restored_version으로 현재 소유 버전을 추적합니다. 기존 id/before/version은 유지해 이전 데이터와 학습 로직이 호환됩니다. 스키마·데이터 삭제나 신규 마이그레이션은 없습니다. 기존 004_feedback_review.sql까지 적용되어 있어야 하며, 최신 앱의 육아 기록은 기존 006까지 필요합니다. 이미 적용된 DB에 SQL을 재실행할 필요가 없습니다. 구버전 앱의 구간 저장 요청은 실패하므로 웹/앱을 함께 갱신하세요.
 
 ## 변경 파일
 - backend/app/routers/reviews.py: 자동 대상 선정, 버전 검사, 보호된 데이터 제외, idempotency, cohort 단위 실행 취소 보호.
@@ -25,7 +25,7 @@ JWT 사용자·원본 완료 메타데이터 소유권을 다시 확인합니다
 - .gitignore: 로컬 브라우저 테스트 결과 제외.
 
 ## 검증
-- 백엔드 전체: 136 passed / 11 skipped (PostgreSQL 전용 테스트; 로컬 PostgreSQL 없음).
+- 백엔드 전체: 137 passed / 11 skipped (PostgreSQL 전용 테스트; 로컬 PostgreSQL 없음).
 - 프런트엔드: 67 passed / 18 files.
 - Vite Android 빌드 및 Capacitor sync 성공. Android Gradle APK 빌드 성공.
 - 실제 Edge 브라우저 + 임시 SQLite + 실제 라우터·알림 워커·FCM 메시지 구성: mock 분석 21개 → 상태 알림 2개 → 알림 열기 → 상태 한 번 선택으로 3개 자동 저장 → 실행 취소 → 재저장 → 정기 알림 1개 → 돌아보기·설정 변경 통과. pageErrors 없음.

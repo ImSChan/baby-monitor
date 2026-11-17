@@ -172,7 +172,7 @@ def batch_feedback(payload: BatchFeedback, session: Session = Depends(get_sessio
         raise HTTPException(409, '피드백이 변경되었습니다. 새로고침 후 다시 선택해주세요.')
     own_ids = {change['id'] for action in session.exec(select(ReviewAction).where(
         ReviewAction.user_id == uid, ReviewAction.undone == False)).all()
-        for change in action.changes if change.get('event_id') == payload.event_id and any(f.id == change['id'] and current_version(f) == change['version'] for f in existing.values())}
+        for change in action.changes if change.get('event_id') == payload.event_id and any(f.id == change['id'] and current_version(f) == change.get('restored_version', change['version']) for f in existing.values())}
     changes = []
     skipped = 0
     for row in rows:
@@ -240,9 +240,10 @@ def undo_feedback(action_id: UUID, session: Session = Depends(get_session), uid:
         feedback = session.exec(select(InferenceFeedback).where(
             InferenceFeedback.id == change['id'], InferenceFeedback.user_id == uid).with_for_update()).first()
         if (not feedback or feedback.training_status not in {'pending', 'excluded'}
-                or current_version(feedback) != change['version']):
+                or current_version(feedback) != change.get('restored_version', change['version'])):
             raise HTTPException(409, '이미 변경되었거나 학습 중인 피드백은 되돌릴 수 없습니다.')
         pairs.append((feedback, change['before']))
+    restorations = {}
     for feedback, before in pairs:
         if before is None:
             session.delete(feedback)
@@ -250,7 +251,21 @@ def undo_feedback(action_id: UUID, session: Session = Depends(get_session), uid:
             for key in ('feedback_type', 'corrected_label', 'comment', 'training_status', 'learning_group'):
                 setattr(feedback, key, before.get(key))
             feedback.updated_at = kst_now()
+            restorations[feedback.id] = (before['updated_at'], current_version(feedback))
             session.add(feedback)
+    # Attribute restored values to their prior response without reviving stale
+    # browser signatures or losing the original write version in the audit log.
+    for prior in session.exec(select(ReviewAction).where(ReviewAction.user_id == uid,
+            ReviewAction.undone == False, ReviewAction.id != action.id)).all():
+        revised = []
+        for change in prior.changes:
+            restored = restorations.get(change['id'])
+            if restored and change.get('restored_version', change['version']) == restored[0]:
+                change = {**change, 'restored_version': restored[1]}
+            revised.append(change)
+        if revised != prior.changes:
+            prior.changes = revised
+            session.add(prior)
     action.undone = True
     session.add(action); session.commit()
     return {'undone': True}
