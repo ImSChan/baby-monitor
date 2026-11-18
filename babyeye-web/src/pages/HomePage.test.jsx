@@ -1,3 +1,4 @@
+vi.mock('../components/status/TrainingStatusCard', () => ({ default: () => null }))
 import React from 'react'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'

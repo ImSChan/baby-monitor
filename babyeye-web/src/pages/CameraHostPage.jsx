@@ -2,6 +2,8 @@
 import { Activity, Camera, Radio, Square, Video } from 'lucide-react'
 
 import Card from '../components/common/Card'
+import useVideoFreshness from '../hooks/useVideoFreshness'
+import LiveHealthCard from '../components/status/LiveHealthCard'
 import Header from '../components/common/Header'
 import { useLiveHost } from '../hooks/useLiveConnection'
 import { abortableDelay, throwIfAborted } from '../utils/abort'
@@ -30,6 +32,10 @@ function CameraHostPage() {
   const [analysisStatus, setAnalysisStatus] = useState('분석 대기 중')
   const [latestAnalysis, setLatestAnalysis] = useState(null)
   const [analysisCount, setAnalysisCount] = useState(0)
+  const [lastCompletedAt, setLastCompletedAt] = useState(null)
+  const [analysisBusy, setAnalysisBusy] = useState(false)
+  const freshness = useVideoFreshness(videoRef, sessionId, isStreaming)
+  useEffect(() => { setLastCompletedAt(null); setLatestAnalysis(null); setAnalysisCount(0) }, [sessionId])
   const [latestAudioMetrics, setLatestAudioMetrics] = useState(null)
 
   useEffect(() => {
@@ -59,6 +65,7 @@ function CameraHostPage() {
     analysisAbortRef.current = null
     stopRequestedRef.current = true
     analysisRunningRef.current = false
+    setAnalysisBusy(false)
 
     if (analysisTimerRef.current) {
       window.clearInterval(analysisTimerRef.current)
@@ -87,6 +94,7 @@ function CameraHostPage() {
     const signal = controller.signal
     try {
       analysisRunningRef.current = true
+      setAnalysisBusy(true)
       setAnalysisStatus('5초 오디오와 현재 프레임을 수집하는 중입니다...')
 
       const [audioPayload, frameFile] = await Promise.all([
@@ -135,6 +143,7 @@ function CameraHostPage() {
       throwIfAborted(signal)
 
       setLatestAnalysis(completed.result)
+      setLastCompletedAt(new Date().toISOString())
       setAnalysisCount((prev) => prev + 1)
       setAnalysisStatus('최근 분석 완료: ' + toUserFriendlyEmotion(completed.result?.emotion))
     } catch (err) {
@@ -142,6 +151,7 @@ function CameraHostPage() {
     } finally {
       if (run === analysisEpochRef.current) {
         analysisRunningRef.current = false
+        setAnalysisBusy(false)
         analysisAbortRef.current = null
       }
     }
@@ -249,7 +259,7 @@ function CameraHostPage() {
           {isStreaming && (
             <div className='absolute left-4 top-4 flex items-center gap-2 rounded-full bg-rose-500/90 px-3 py-1 text-xs font-bold text-white'>
               <Radio size={14} />
-              LIVE
+              {freshness.phase === 'live' ? '카메라 화면 갱신 중' : '카메라 화면 확인 중'}
             </div>
           )}
         </div>
@@ -304,6 +314,8 @@ function CameraHostPage() {
           </button>
         </div>
       </section>
+
+      <LiveHealthCard freshness={freshness} host lastCompletedAt={lastCompletedAt} analysisEnabled={analysisEnabled} analysisBusy={analysisBusy} />
 
       <Card className='mb-5'>
         <div className='mb-3 flex items-center gap-3'>

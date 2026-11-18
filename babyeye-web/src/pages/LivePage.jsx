@@ -10,6 +10,9 @@ import { useLiveViewer } from '../hooks/useLiveConnection'
 import { useAuth } from '../contexts/AuthContext'
 import { getAccessToken } from '../api/authToken'
 import { Link } from 'react-router-dom'
+import useVideoFreshness from '../hooks/useVideoFreshness'
+import useAccountStatus from '../hooks/useAccountStatus'
+import LiveHealthCard from '../components/status/LiveHealthCard'
 
 const initialForm = {
   name: '',
@@ -23,8 +26,11 @@ const initialForm = {
 function LivePage() {
   const remoteVideoRef = useRef(null)
   const { user } = useAuth()
-  const { selectedSession, connecting, receiving, status: liveStatus, error: liveError,
+  const { selectedSession, connecting, status: liveStatus, error: liveError,
     start: connectToSession, stop: stopViewer } = useLiveViewer(remoteVideoRef)
+  const [connectionAttempt, setConnectionAttempt] = useState(0)
+  const freshness = useVideoFreshness(remoteVideoRef, selectedSession ? selectedSession.sessionId + ':' + connectionAttempt : null, Boolean(selectedSession))
+  const analysis = useAccountStatus('/api/training/analysis-status')
   const pageEpochRef = useRef(0)
 
   const [cameras, setCameras] = useState([])
@@ -181,7 +187,7 @@ function LivePage() {
           {selectedSession && (
             <>
               <div className='absolute left-4 top-4'>
-                <StatusBadge type={receiving ? 'normal' : 'warning'}>{receiving ? 'LIVE' : '연결 중'}</StatusBadge>
+                <StatusBadge type={freshness.phase === 'live' ? 'normal' : 'warning'}>{freshness.phase === 'live' ? 'LIVE' : freshness.phase === 'stalled' ? '영상 멈춤' : '영상 확인 중'}</StatusBadge>
               </div>
 
               <div className='absolute bottom-4 left-4 right-4 rounded-2xl bg-black/50 p-3 text-xs text-slate-200'>
@@ -191,6 +197,12 @@ function LivePage() {
           )}
         </div>
       </section>
+
+      <LiveHealthCard freshness={freshness} lastCompletedAt={analysis.data?.lastCompletedAt} analysisError={analysis.error} analysisLoading={!analysis.data && !analysis.error} />
+      {selectedSession && <div className="mb-5 flex gap-2">
+        <button onClick={() => remoteVideoRef.current?.play()?.catch(() => {})} className="rounded-xl bg-slate-800 px-4 py-3 text-sm">영상 재생</button>
+        <button onClick={() => { const session = selectedSession; stopViewer(); setConnectionAttempt(value => value + 1); connectToSession(session) }} className="rounded-xl bg-blue-600 px-4 py-3 text-sm">다시 연결</button>
+      </div>}
 
       <Card className='mb-5'>
         <div className='mb-4 flex items-center justify-between'>
@@ -260,7 +272,7 @@ function LivePage() {
         {selectedSession && (
           <button
             type='button'
-            onClick={() => stopViewer(true)}
+            onClick={() => stopViewer()}
             className='mt-4 flex w-full items-center justify-center gap-2 rounded-2xl bg-slate-800 py-3 text-sm font-bold text-slate-200'
           >
             <WifiOff size={18} />

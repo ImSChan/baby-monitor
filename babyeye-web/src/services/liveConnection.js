@@ -76,7 +76,7 @@ function mediaPeer({ configuration, negotiationId, send, stream, onStream, onSta
     if (closed) return
     clearTimeout(disconnectTimer)
     if (connection.connectionState === 'connected') {
-      clearTimeout(connectionTimer); onStatus('P2P 라이브 연결 완료')
+      clearTimeout(connectionTimer); onStatus('영상 연결 완료 · 화면 갱신 확인 중')
     } else if (connection.connectionState === 'failed') {
       onFailure('영상 연결에 실패했습니다. 다른 네트워크에서는 TURN 서버가 필요할 수 있습니다.')
     } else if (connection.connectionState === 'disconnected') {
@@ -151,7 +151,7 @@ export class LiveViewer extends LiveController {
             onStream: stream => {
               if (!this.current(run)) { stream?.getTracks().forEach(track => track.stop()); return }
               this.remoteStream = stream; this.onStream?.(stream)
-              this.patch({ connecting: false, receiving: true, status: '실시간 영상 수신 중입니다.' })
+              this.patch({ connecting: false, receiving: true, status: '영상 스트림 연결됨 · 화면 갱신 확인 중' })
             },
             onStatus: status => { if (this.current(run)) this.patch({ connecting: false, status }) },
             onFailure: reason => { if (this.current(run)) this.stop(reason, reason) },

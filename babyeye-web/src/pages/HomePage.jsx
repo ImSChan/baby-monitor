@@ -1,3 +1,4 @@
+import TrainingStatusCard from '../components/status/TrainingStatusCard'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { ArrowRight, Camera, ChevronDown, RefreshCw, Upload, Video } from 'lucide-react'
@@ -175,6 +176,7 @@ function HomeContent() {
     <BabyStatusOverview result={latest} loading={initialLoading} unavailable={errors.dashboard && errors.history} />
     {errors.dashboard && <p role="alert" className="rounded-xl bg-amber-400/10 p-3 text-sm text-amber-200">최신 상태를 갱신하지 못했어요. 표시된 분석 시각을 확인해 주세요.<button onClick={() => loadOverview()} className="ml-2 underline">다시 시도</button></p>}
 
+    <TrainingStatusCard />
     <section aria-label="최근 분석 흐름" className="rounded-3xl border border-slate-700/60 bg-slate-900/60 p-5">
       <div className="flex items-center justify-between gap-2"><div><h2 className="font-bold">최근 분석 흐름</h2><p className="mt-1 text-xs text-slate-400">{history.length ? `최근 ${history.length}건 기준 · 분석 횟수` : '분석 기록이 쌓이면 흐름을 보여드려요'}</p></div>
         <button aria-label="분석 새로고침" disabled={refreshing} onClick={() => loadOverview()} className="rounded-xl bg-slate-800 p-2.5 text-slate-300 disabled:opacity-40"><RefreshCw size={16} className={refreshing ? 'animate-spin' : ''} /></button></div>

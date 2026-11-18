@@ -26,13 +26,17 @@ def main():
         os.environ['DATABASE_URL'] = 'sqlite:///' + (root / 'demo.db').as_posix()
         os.environ['JWT_SECRET_KEY'] = 'local-mock-only-secret-not-production-12345'
         os.environ['PUSH_ENABLED'] = 'true'
+        os.environ['CORS_ORIGINS'] = 'http://127.0.0.1:5179'
+        os.environ['LIVE_ICE_SERVERS'] = '[]'
+        os.environ['USER_WEIGHTS_DIR'] = str(root / 'weights')
+        (root / 'weights').mkdir()
         sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
         from fastapi import FastAPI
         from fastapi.middleware.cors import CORSMiddleware
         from sqlmodel import SQLModel, Session, select
         from app.database import engine
         from app.models import AppUser, EmotionEvent, NotificationPreference, PushDevice, ReviewSchedule
-        from app.routers import push, reviews, feedback, inference, auth, care, dashboard, emotions
+        from app.routers import push, reviews, feedback, inference, auth, care, dashboard, emotions, training, live, cameras
         from app.services.notification_service import enqueue_notification
         from app.services.review_service import enqueue_reviews
         from app.services.firebase_service import send_notification
@@ -51,7 +55,8 @@ def main():
         app.add_middleware(CORSMiddleware, allow_origins=['http://127.0.0.1:5179'], allow_methods=['*'], allow_headers=['*'])
         for router, prefix in [(push.router, '/api/push'), (reviews.router, '/api/reviews'),
             (feedback.router, '/api/feedback'), (inference.router, '/api/inference'), (auth.router, '/api/auth'),
-            (care.router, '/api/care'), (dashboard.router, '/api/dashboard'), (emotions.router, '/api/emotions')]:
+            (care.router, '/api/care'), (dashboard.router, '/api/dashboard'), (emotions.router, '/api/emotions'),
+            (training.router, '/api/training'), (live.router, '/api/live'), (cameras.router, '/api/cameras')]:
             app.include_router(router, prefix=prefix)
         outbox = []
 
@@ -68,8 +73,11 @@ def main():
                         break
 
         @app.get('/mock/session')
-        def mock_session():
-            return {'access_token': auth.create_access_token(1), 'mock': True}
+        def mock_session(user_id: int = 1):
+            from fastapi import HTTPException
+            if user_id not in (1, 2):
+                raise HTTPException(400, 'Local fixture account only')
+            return {'access_token': auth.create_access_token(user_id), 'mock': True}
 
         @app.get('/mock/outbox')
         def mock_outbox():
@@ -111,6 +119,25 @@ def main():
             enqueue_reviews(engine, now)
             drain()
             return {'outboxCount': len(outbox)}
+
+        @app.post('/mock/training-stage/{stage}')
+        def training_stage(stage: str):
+            from app.models import TrainingJob
+            from fastapi import HTTPException
+            if stage not in {'queued', 'running', 'completed', 'registered'}:
+                raise HTTPException(400, 'Local fixture stage only')
+            with Session(engine) as session:
+                row = session.get(TrainingJob, 1) or TrainingJob(id=1, user_id=1, modalities=['audio'])
+                row.status = 'completed' if stage == 'registered' else stage
+                row.completed_at = kst_now() if row.status == 'completed' else None
+                session.add(row); session.commit()
+            if stage == 'registered':
+                directory = root / 'weights/1/audio'; directory.mkdir(parents=True, exist_ok=True)
+                (directory / 'current.json').write_text(json.dumps({'user_id': 1, 'modality': 'audio',
+                    'active_job_id': 1, 'activated_at': kst_now().isoformat() + '+09:00'}))
+                (directory / 'head_job_1.pt').write_bytes(b'local-fixture-not-real-model')
+                (root / 'weights/1_audio_head.pt').write_bytes(b'local-fixture-not-real-model')
+            return {'stage': stage, 'mock': True, 'training': 'not-executed'}
 
         @app.post('/mock/care-analysis')
         def care_analysis():
