@@ -28,7 +28,7 @@ it('places the latest baby needs above history and live controls, with no emotio
   render(view())
   await screen.findByText('배가 고픈 것 같아요')
   expect(screen.getByRole('link',{name:'설정',exact:true}).getAttribute('href')).toBe('/settings')
-  expect(screen.getByRole('link',{name:'알림',exact:true}).getAttribute('href')).toBe('/notifications')
+  expect(screen.getByRole('button',{name:'알림',exact:true}).disabled).toBe(false)
   const overview = screen.getByRole('region', { name: '최근 아기 상태' })
   const flow = screen.getByRole('region', { name: '최근 분석 흐름' })
   const live = screen.getByRole('region', { name: '라이브 확인' })
