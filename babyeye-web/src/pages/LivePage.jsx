@@ -9,7 +9,7 @@ import { getLiveSessions } from '../api/liveApi'
 import { useLiveViewer } from '../hooks/useLiveConnection'
 import { useAuth } from '../contexts/AuthContext'
 import { getAccessToken } from '../api/authToken'
-import { Link } from 'react-router-dom'
+import { Link, useSearchParams } from 'react-router-dom'
 import useVideoFreshness from '../hooks/useVideoFreshness'
 import useAccountStatus from '../hooks/useAccountStatus'
 import LiveHealthCard from '../components/status/LiveHealthCard'
@@ -25,6 +25,9 @@ const initialForm = {
 
 function LivePage() {
   const remoteVideoRef = useRef(null)
+  const [searchParams]=useSearchParams()
+  const requestedSession=searchParams.get('session')
+  const requestedRef=useRef(null)
   const { user } = useAuth()
   const { selectedSession, connecting, status: liveStatus, error: liveError,
     start: connectToSession, stop: stopViewer } = useLiveViewer(remoteVideoRef)
@@ -57,6 +60,14 @@ function LivePage() {
       clearInterval(timer)
     }
   }, [user?.id])
+
+  useEffect(()=>{
+    if(!requestedSession||loading||error)return
+    const key=user?.id+':'+requestedSession
+    if(requestedRef.current===key)return
+    const session=sessions.find(item=>item.sessionId===requestedSession)
+    if(session){requestedRef.current=key;connectToSession(session)}
+  },[requestedSession,sessions,loading,error,user?.id,connectToSession])
 
   async function loadPageData() {
     const token = getAccessToken(), epoch = pageEpochRef.current

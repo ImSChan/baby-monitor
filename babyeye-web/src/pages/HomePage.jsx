@@ -1,7 +1,7 @@
-import TrainingStatusCard from '../components/status/TrainingStatusCard'
+import HomeLiveCard from '../components/home/HomeLiveCard'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { ArrowRight, Camera, ChevronDown, RefreshCw, Upload, Video } from 'lucide-react'
+import { ArrowRight, ChevronDown, RefreshCw, Upload, Video } from 'lucide-react'
 import Header from '../components/common/Header'
 import BabyStatusOverview from '../components/home/BabyStatusOverview'
 import { getDashboard } from '../api/dashboardApi'
@@ -30,6 +30,7 @@ function HomeContent() {
   const [dashboardData, setDashboardData] = useState(null)
   const [history, setHistory] = useState([])
   const [liveSessions, setLiveSessions] = useState([])
+  const [liveLoading,setLiveLoading]=useState(true),[liveCheckedAt,setLiveCheckedAt]=useState(null)
   const [initialLoading, setInitialLoading] = useState(true)
   const [refreshing, setRefreshing] = useState(false)
   const [errors, setErrors] = useState({})
@@ -45,7 +46,7 @@ function HomeContent() {
     const controller = new AbortController(), request = ++requestRef.current
     overviewAbortRef.current = controller
     const epoch = pageEpochRef.current, token = getAccessToken()
-    if (!silent) setRefreshing(true)
+    if (!silent) {setRefreshing(true);setLiveLoading(true)}
     const options = { signal: controller.signal }
     const active = () => !controller.signal.aborted && request === requestRef.current && epoch === pageEpochRef.current && token === getAccessToken()
     async function loadPart(key, task, apply) {
@@ -63,7 +64,8 @@ function HomeContent() {
       } finally { clearTimeout(timer); controller.signal.removeEventListener('abort', cancel) }
     }
     // Live availability must never hold up the baby's analysis summary.
-    loadPart('live', getLiveSessions(options), value => setLiveSessions(Array.isArray(value) ? value : []))
+    loadPart('live', getLiveSessions(options), value => {setLiveSessions(Array.isArray(value) ? value : []);setLiveCheckedAt(Date.now())})
+      .finally(()=>{if(active())setLiveLoading(false)})
     await Promise.all([
       loadPart('dashboard', getDashboard(options), setDashboardData),
       loadPart('history', getEmotionHistory(options), value => setHistory(Array.isArray(value) ? value : [])),
@@ -176,7 +178,7 @@ function HomeContent() {
     <BabyStatusOverview result={latest} loading={initialLoading} unavailable={errors.dashboard && errors.history} />
     {errors.dashboard && <p role="alert" className="rounded-xl bg-amber-400/10 p-3 text-sm text-amber-200">최신 상태를 갱신하지 못했어요. 표시된 분석 시각을 확인해 주세요.<button onClick={() => loadOverview()} className="ml-2 underline">다시 시도</button></p>}
 
-    <TrainingStatusCard />
+    <HomeLiveCard sessions={liveSessions} loading={liveLoading} error={errors.live} checkedAt={liveCheckedAt} onRefresh={()=>loadOverview()}/>
     <section aria-label="최근 분석 흐름" className="rounded-3xl border border-slate-700/60 bg-slate-900/60 p-5">
       <div className="flex items-center justify-between gap-2"><div><h2 className="font-bold">최근 분석 흐름</h2><p className="mt-1 text-xs text-slate-400">{history.length ? `최근 ${history.length}건 기준 · 분석 횟수` : '분석 기록이 쌓이면 흐름을 보여드려요'}</p></div>
         <button aria-label="분석 새로고침" disabled={refreshing} onClick={() => loadOverview()} className="rounded-xl bg-slate-800 p-2.5 text-slate-300 disabled:opacity-40"><RefreshCw size={16} className={refreshing ? 'animate-spin' : ''} /></button></div>
@@ -197,11 +199,6 @@ function HomeContent() {
     </section>
 
     <Link to="/reviews" className="flex items-center justify-between gap-3 rounded-2xl border border-blue-300/15 bg-blue-400/5 p-4"><div><p className="text-sm font-semibold text-blue-200">지난 12시간 돌아보기</p><p className="mt-1 text-xs leading-5 text-slate-400">알림이 왔던 상황을 모아 보고 실제 상태를 알려주세요.</p></div><ArrowRight size={18} className="shrink-0 text-blue-300" /></Link>
-
-    <section aria-label="라이브 확인" className="rounded-3xl border border-slate-700/60 bg-slate-900/60 p-5">
-      <div className="flex items-center gap-3"><div className="rounded-xl bg-slate-800 p-3 text-blue-200"><Camera size={21} /></div><div><h2 className="font-bold">직접 모습 확인하기</h2><p className="mt-1 text-xs text-slate-400">{errors.live ? '연결 상태를 확인하지 못했어요' : liveSessions.length ? `연결 가능한 홈캠 ${liveSessions.length}개` : '현재 연결된 홈캠이 없어요'}</p></div></div>
-      <div className="mt-4 grid grid-cols-2 gap-2"><Link to="/live" className="rounded-xl bg-slate-800 py-3 text-center text-sm font-semibold">라이브 보기</Link><Link to="/camera-host" className="rounded-xl border border-slate-700 py-3 text-center text-sm text-slate-300">홈캠 시작</Link></div>
-    </section>
 
     <section aria-label="영상으로 분석하기" className="rounded-3xl border border-slate-700/60 bg-slate-900/60 p-5">
       <div className="flex items-center gap-2"><Video size={18} className="text-blue-300" /><h2 className="font-bold">영상으로 분석하기</h2></div>

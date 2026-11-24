@@ -1,4 +1,3 @@
-vi.mock('../components/status/TrainingStatusCard', () => ({ default: () => null }))
 import React from 'react'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
@@ -24,7 +23,7 @@ beforeEach(() => {
   mock.live.mockResolvedValue([])
 })
 
-it('places the latest baby needs above history and live controls, with no emotion tab or inline stream', async () => {
+it('places the live hub after the baby summary and before history without the training card', async () => {
   render(view())
   await screen.findByText('배가 고픈 것 같아요')
   expect(screen.getByRole('link',{name:'설정',exact:true}).getAttribute('href')).toBe('/settings')
@@ -33,7 +32,10 @@ it('places the latest baby needs above history and live controls, with no emotio
   const flow = screen.getByRole('region', { name: '최근 분석 흐름' })
   const live = screen.getByRole('region', { name: '라이브 확인' })
   expect(overview.compareDocumentPosition(flow) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
-  expect(flow.compareDocumentPosition(live) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+  expect(overview.compareDocumentPosition(live) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+  expect(live.compareDocumentPosition(flow) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+  expect(screen.queryByText('개인화 학습 상태')).toBeNull()
+  expect(screen.getAllByRole('region',{name:'라이브 확인'})).toHaveLength(1)
   expect(within(overview).getByText('82%')).toBeTruthy()
   expect(screen.getByText('12%')).toBeTruthy()
   expect(screen.getByText('최근 6건 기준 · 분석 횟수')).toBeTruthy()
@@ -57,7 +59,7 @@ it('keeps the primary analysis visible when history and live status fail', async
   render(view())
   await screen.findByText('배가 고픈 것 같아요')
   expect(screen.getByText('최근 기록을 갱신하지 못했어요.')).toBeTruthy()
-  expect(screen.getByText('연결 상태를 확인하지 못했어요')).toBeTruthy()
+  expect(screen.getByText(/연결 상태를 확인하지 못했어요/)).toBeTruthy()
   expect(screen.getByRole('button', { name: '분석 새로고침' })).toBeTruthy()
 })
 
@@ -109,4 +111,11 @@ it('cancels a late upload before sending media after leaving home', async () => 
   page.unmount()
   await act(async () => resolve({ frameFiles: [new File(['frame'], 'frame.jpg')], audioFile: null }))
   expect(mock.upload).not.toHaveBeenCalled()
+})
+
+it('offers a direct link for a camera returned by this account',async()=>{
+  mock.live.mockResolvedValue([{sessionId:'session-one',cameraName:'아기방 홈캠'}])
+  render(view());await screen.findByText('아기방 홈캠')
+  expect(screen.getByRole('link',{name:'라이브 보기'}).getAttribute('href')).toBe('/live?session=session-one')
+  expect(screen.getByRole('link',{name:'홈캠 시작'}).getAttribute('href')).toBe('/camera-host')
 })

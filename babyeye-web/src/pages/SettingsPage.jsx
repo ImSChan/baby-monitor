@@ -1,4 +1,3 @@
-import TrainingStatusCard from '../components/status/TrainingStatusCard'
 import { User, Camera, Bell, Shield, ChevronRight } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'
@@ -43,7 +42,6 @@ function SettingsPage() {
         </div>
       </Card>
 
-      <div className="mb-5"><TrainingStatusCard /></div>
       <div className='space-y-5'>
         {sections.map((section) => (
           <Card key={section.title}>

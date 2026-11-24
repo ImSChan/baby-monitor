@@ -4,7 +4,7 @@ import { BrowserRouter } from 'react-router-dom'
 import PushCenter from './components/common/PushCenter'
 import { NotificationProvider } from './contexts/NotificationContext'
 import AppRouter from './routes/AppRouter'
-import BottomNav from './components/common/BottomNav'
+import HomeReturnLink from './components/common/HomeReturnLink'
 import { AuthProvider, useAuth } from './contexts/AuthContext'
 
 function AppLayout() {
@@ -14,14 +14,14 @@ function AppLayout() {
     <div className="min-h-screen bg-[#0B1020] text-white">
       <div
         className={`mx-auto min-h-screen max-w-[430px] bg-[#0B1020] ${
-          user ? 'pb-24' : ''
+          user ? 'pb-8' : ''
         }`}
       >
+        {!loading && user && <HomeReturnLink />}
         <PushCenter />
         <AppRouter />
       </div>
 
-      {!loading && user && <BottomNav />}
     </div>
   )
 }
