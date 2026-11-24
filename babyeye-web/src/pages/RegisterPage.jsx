@@ -34,7 +34,7 @@ export default function RegisterPage() {
       <label className="block text-sm">비밀번호 확인<input required type="password" autoComplete="new-password" minLength={8} maxLength={128} {...field('confirm')} className="mt-2 w-full rounded-xl bg-slate-800 p-3"/></label>
       <label className="block text-sm">아이 이름 (별명)<input required maxLength={100} {...field('child_name')} className="mt-2 w-full rounded-xl bg-slate-800 p-3"/></label>
       <label className="block text-sm">현재 월령 (개월)<input required type="number" inputMode="numeric" min={0} max={71} step={1} {...field('child_age_months')} className="mt-2 w-full rounded-xl bg-slate-800 p-3"/></label>
-      <p className="text-xs leading-5 text-slate-400">태어난 달은 0개월이에요. 입력일을 기준으로 매달 추정 월령이 늘어나요. 육아 기록에서 수정할 수 있어요.</p>
+      <p className="text-xs leading-5 text-slate-400">태어난 달은 0개월이에요. 입력일을 기준으로 매달 추정 월령이 늘어나요. 홈의 기록 입력 창에서 수정할 수 있어요.</p>
       {error&&<p role="alert" className="text-sm text-red-300">{error}</p>}
       <button className="w-full rounded-xl bg-blue-600 p-3 font-semibold disabled:opacity-50">{busy?'가입 중…':'가입하기'}</button>
     </fieldset></form>
