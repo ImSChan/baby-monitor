@@ -290,3 +290,20 @@ def test_failed_peer_transport_removes_room_and_closes_other_side():
         assert viewer.closed == [1000]
         assert viewer.sent[-1]['type'] == 'session-ended'
     asyncio.run(scenario())
+
+
+def test_persistent_live_peers_do_not_expire_with_wall_clock_but_idle_cleanup_remains():
+    async def scenario():
+        now=[0.];wall=[100.]
+        manager=LiveSessionManager(clock=lambda:now[0],wall_clock=lambda:wall[0])
+        room=await manager.create_session(user_id=1);sid=room['sessionId']
+        host=FakeSocket();viewer=FakeSocket()
+        await manager.connect(sid,'host',host,1,float('inf'))
+        await manager.connect(sid,'viewer',viewer,1,float('inf'))
+        wall[0]+=365*86400;now[0]+=10
+        await manager.touch(sid,'host',host);await manager.touch(sid,'viewer',viewer)
+        await manager.cleanup()
+        assert (await manager.get_session(sid,1))['hostConnected']
+        assert not host.closed and not viewer.closed
+        now[0]+=46;await manager.cleanup();assert not manager.sessions
+    asyncio.run(scenario())

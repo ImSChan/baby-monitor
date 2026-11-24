@@ -1,6 +1,7 @@
 
 import os
-from datetime import datetime, timedelta, timezone
+import math
+from datetime import datetime, timezone
 
 import jwt
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -20,7 +21,6 @@ security = HTTPBearer()
 password_hash = PasswordHash.recommended()
 
 JWT_ALGORITHM = "HS256"
-JWT_EXPIRE_MINUTES = 60
 
 
 class RegisterRequest(ChildInput):
@@ -61,7 +61,7 @@ def create_access_token(user_id: int) -> str:
     payload = {
         "sub": str(user_id),
         "iat": now,
-        "exp": now + timedelta(minutes=JWT_EXPIRE_MINUTES),
+        "persistent": True,
     }
     return jwt.encode(
         payload,
@@ -82,11 +82,21 @@ def authenticate_access_token(token: str, session: Session) -> tuple[AppUser, fl
             token,
             get_secret_key(),
             algorithms=[JWT_ALGORITHM],
-            options={"require": ["sub", "exp"]},
+            options={"require": ["sub"]},
         )
         user_id = int(payload["sub"])
-        expires_at = float(payload["exp"])
-    except (jwt.PyJWTError, KeyError, TypeError, ValueError):
+        if 'exp' in payload:
+            # Existing finite tokens keep their signed expiry; never revive them.
+            expires_at = float(payload['exp'])
+            if not math.isfinite(expires_at):
+                raise ValueError('Invalid expiry')
+        elif payload.get('persistent') is True and 'iat' in payload:
+            # Internal deadline only, never serialized. Existing live connection
+            # cleanup still uses heartbeat/account checks for persistent sessions.
+            expires_at = float('inf')
+        else:
+            raise ValueError('Missing session lifetime policy')
+    except (jwt.PyJWTError, KeyError, TypeError, ValueError, OverflowError):
         raise unauthorized
 
     user = session.get(AppUser, user_id)

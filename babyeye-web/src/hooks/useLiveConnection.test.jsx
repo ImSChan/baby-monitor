@@ -8,7 +8,8 @@ import { setAccessToken } from '../api/authToken'
 beforeEach(() => {
   vi.clearAllMocks()
   const storage = new Map()
-  vi.stubGlobal('sessionStorage', {getItem:k=>storage.get(k)||null,setItem:(k,v)=>storage.set(k,v),removeItem:k=>storage.delete(k)})
+  sessionStorage.clear()
+  vi.stubGlobal('localStorage', {getItem:k=>storage.get(k)||null,setItem:(k,v)=>storage.set(k,v),removeItem:k=>storage.delete(k)})
   vi.stubGlobal('WebSocket', class { close=vi.fn(); send=vi.fn() })
   Object.defineProperty(navigator,'mediaDevices',{configurable:true,value:{getUserMedia:mocks.media}})
   setAccessToken('token'); mocks.config.mockResolvedValue({protocolVersion:2,iceServers:[]})

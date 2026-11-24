@@ -9,6 +9,7 @@ import {
 
 import { apiGet, apiPost } from '../api/client'
 import {
+  AUTH_TOKEN_KEY,
   getAccessToken,
   setAccessToken,
   clearAccessToken,
@@ -29,7 +30,8 @@ export function AuthProvider({ children }) {
 
     async function restoreSession() {
       const epoch = authEpoch.current, token = getAccessToken()
-      if (!getAccessToken()) {
+      if (!token) {
+        setUser(null)
         setLoading(false)
         return
       }
@@ -48,15 +50,28 @@ export function AuthProvider({ children }) {
           setUser(null)
         }
       } finally {
-        if (active) {
+        if (active && epoch === authEpoch.current) {
           setLoading(false)
         }
       }
     }
 
+    function synchronizeSession(event){
+      if(event.key!==AUTH_TOKEN_KEY && event.key!==null)return
+      if(event.storageArea && event.storageArea!==localStorage)return
+      // Drop legacy tab storage before reading a shared logout, so it cannot
+      // resurrect the previous account's credential.
+      sessionStorage.removeItem(AUTH_TOKEN_KEY)
+      stopAllLiveResources()
+      authEpoch.current++
+      setUser(null);setLoading(true)
+      restoreSession()
+    }
     restoreSession()
+    window.addEventListener('storage',synchronizeSession)
 
     return () => {
+      window.removeEventListener('storage',synchronizeSession)
       active = false
     }
   }, [])

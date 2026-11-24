@@ -11,7 +11,8 @@ const defer = () => { let resolve, reject; const promise = new Promise((a,b) => 
 beforeEach(() => {
   vi.clearAllMocks()
   const storage = new Map()
-  vi.stubGlobal('sessionStorage', { getItem:k => storage.get(k) || null, setItem:(k,v) => storage.set(k,v), removeItem:k => storage.delete(k) })
+  sessionStorage.clear()
+  vi.stubGlobal('localStorage', { getItem:k => storage.get(k) || null, setItem:(k,v) => storage.set(k,v), removeItem:k => storage.delete(k) })
   mocks.get.mockResolvedValue({id:1}); mocks.post.mockResolvedValue({access_token:'new-token'}); mocks.revoke.mockResolvedValue()
 })
 afterEach(() => { cleanup(); vi.unstubAllGlobals() })
@@ -53,4 +54,20 @@ it('ignores a superseded login response', async () => {
   await act(async () => result.current.login('two@example.com','password'))
   await act(async () => { first.resolve({access_token:'stale-token'}); await old })
   expect(result.current.user.id).toBe(2); expect(getAccessToken()).toBe('new-token')
+})
+
+it('synchronizes another tab logout without restoring an old tab token',async()=>{
+  setAccessToken('old-token')
+  const {result}=renderHook(()=>useAuth(),{wrapper});await waitFor(()=>expect(result.current.user?.id).toBe(1))
+  sessionStorage.setItem('babyeye_access_token','stale-legacy')
+  localStorage.removeItem('babyeye_access_token')
+  act(()=>window.dispatchEvent(new StorageEvent('storage',{key:'babyeye_access_token'})))
+  expect(result.current.user).toBeNull();expect(getAccessToken()).toBeNull()
+})
+it('switches account after a shared persistent credential changes',async()=>{
+  setAccessToken('old-token')
+  const {result}=renderHook(()=>useAuth(),{wrapper});await waitFor(()=>expect(result.current.user?.id).toBe(1))
+  localStorage.setItem('babyeye_access_token','other-token');mocks.get.mockResolvedValue({id:2})
+  await act(async()=>window.dispatchEvent(new StorageEvent('storage',{key:'babyeye_access_token'})))
+  expect(result.current.user.id).toBe(2);expect(getAccessToken()).toBe('other-token')
 })

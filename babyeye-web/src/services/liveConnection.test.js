@@ -50,7 +50,8 @@ async function viewerReady() {
 beforeEach(() => {
   vi.useFakeTimers(); vi.clearAllMocks(); Socket.instances = []; Peer.instances = []
   const storage = new Map()
-  vi.stubGlobal('sessionStorage', { getItem:key => storage.get(key) || null,
+  sessionStorage.clear()
+  vi.stubGlobal('localStorage', { getItem:key => storage.get(key) || null,
     setItem:(key,value) => storage.set(key,value), removeItem:key => storage.delete(key) })
   vi.stubGlobal('WebSocket', Socket); vi.stubGlobal('RTCPeerConnection', Peer)
   Object.defineProperty(navigator, 'mediaDevices', { configurable:true, value:{ getUserMedia:media } })
