@@ -11,6 +11,8 @@ const NotificationContext = createContext(null)
 export function NotificationProvider({ children }) {
   const { user } = useAuth()
   const navigate = useNavigate()
+  const [unread,setUnread]=useState({userId:null,count:0})
+  const unreadCount=user&&unread.userId===user.id?unread.count:0
   const [enabled, setEnabled] = useState(false)
   const [loading, setLoading] = useState(true)
   const [busy, setBusy] = useState(false)
@@ -20,6 +22,32 @@ export function NotificationProvider({ children }) {
   const [ready, setReady] = useState(!isAndroid())
   const current = useRef({ user, enabled })
   current.current = { user, enabled }
+
+  useEffect(()=>{
+    let active=true,sequence=0,controller
+    const account=user?.id
+    setUnread({userId:account??null,count:0})
+    if(!account)return
+    async function update(){
+      const request=++sequence
+      controller?.abort();controller=new AbortController()
+      try{
+        const data=await apiGet('/api/push/events?limit=1&offset=0',{signal:controller.signal})
+        if(active&&request===sequence&&current.current.user?.id===account&&Number.isInteger(data.unreadCount)&&data.unreadCount>=0)
+          setUnread({userId:account,count:data.unreadCount})
+      }catch{} // Keep the last known count on transient failures.
+    }
+    const visible=()=>{if(!document.hidden)update()}
+    update()
+    const timer=setInterval(visible,30000)
+    window.addEventListener('babyeye:notifications',update)
+    window.addEventListener('focus',visible)
+    document.addEventListener('visibilitychange',visible)
+    return()=>{active=false;sequence++;controller?.abort();clearInterval(timer)
+      window.removeEventListener('babyeye:notifications',update)
+      window.removeEventListener('focus',visible)
+      document.removeEventListener('visibilitychange',visible)}
+  },[user?.id])
 
   const refresh = useCallback(async () => {
     if (!user) return
@@ -78,7 +106,7 @@ export function NotificationProvider({ children }) {
       })
       await listen('pushNotificationActionPerformed', ({ notification }) => {
         const path = notificationPath(notification.data)
-        if (path) navigate(path)
+        if (path) { navigate(path); window.dispatchEvent(new Event('babyeye:notifications')) }
       })
       if (!cancelled) setReady(true)
     }
@@ -136,7 +164,7 @@ export function NotificationProvider({ children }) {
     } catch (err) { setNativeStatus(err.message || '푸시 재연결에 실패했습니다.') }
     finally { setBusy(false) }
   }
-  return <NotificationContext.Provider value={{ enabled, loading, busy, error, nativeStatus,
+  return <NotificationContext.Provider value={{ enabled, loading, busy, error, nativeStatus, unreadCount,
     ready, changeEnabled, reconnect, refresh, received, dismiss: () => setReceived(null) }}>
     {children}
   </NotificationContext.Provider>
