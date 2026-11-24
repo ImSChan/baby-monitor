@@ -13,7 +13,7 @@ import { useAuth } from '../contexts/AuthContext'
 import { registerLiveCleanup } from '../services/liveResources'
 import { abortableDelay, throwIfAborted } from '../utils/abort'
 import { preprocessVideoForInference } from '../utils/videoPreprocess'
-import { analysisDate, analysisTime, babyStatus, distribution, formatAnalysisTime, score } from '../utils/babyStatus'
+import { analysisTime, babyStatus, distribution, formatAnalysisTime, score } from '../utils/babyStatus'
 import { localInput } from '../utils/careTime'
 
 export default function HomePage() {
@@ -156,7 +156,7 @@ function HomeContent() {
         saved: completedResult.saved,
       })
 
-      setUploadMessage('분석이 완료됐어요. 맨 위에서 결과를 확인해 주세요.')
+      setUploadMessage('분석을 완료했어요. 대표 상태는 같은 상태가 3회 연속 감지되면 갱신돼요.')
       await loadOverview({ silent: true })
     } catch (err) {
       if (!signal.aborted) { setUploadError(err.message || '영상 분석 요청 중 오류가 발생했습니다.'); setUploadMessage('') }
@@ -168,14 +168,14 @@ function HomeContent() {
     }
   }
 
-  const latest = [dashboardData?.currentEmotion, history[0], analysisResult].filter(Boolean)
-    .sort((a, b) => (analysisDate(analysisTime(b))?.getTime() || 0) - (analysisDate(analysisTime(a))?.getTime() || 0))[0]
+  const confirmed=dashboardData?.confirmedEmotion || null
+  const confirmedUnavailable=errors.dashboard || Boolean(dashboardData&&!Object.prototype.hasOwnProperty.call(dashboardData,'confirmedEmotion'))
   const breakdown = distribution(history)
   const shown = expanded ? history : history.slice(0, 4)
 
   return <main className="space-y-5 px-5 py-6">
-    <Header title="아기 상태" subtitle="아이에게 필요한 것을 한눈에" showSettings />
-    <BabyStatusOverview result={latest} loading={initialLoading} unavailable={errors.dashboard && errors.history} />
+    <Header actionsOnly showSettings />
+    <BabyStatusOverview result={confirmed} loading={initialLoading} unavailable={confirmedUnavailable} />
     {errors.dashboard && <p role="alert" className="rounded-xl bg-amber-400/10 p-3 text-sm text-amber-200">최신 상태를 갱신하지 못했어요. 표시된 분석 시각을 확인해 주세요.<button onClick={() => loadOverview()} className="ml-2 underline">다시 시도</button></p>}
 
     <HomeLiveCard sessions={liveSessions} loading={liveLoading} error={errors.live} checkedAt={liveCheckedAt} onRefresh={()=>loadOverview()}/>
@@ -209,7 +209,7 @@ function HomeContent() {
       <button disabled={uploading} onClick={() => fileInputRef.current?.click()} className="mt-4 flex w-full items-center justify-center gap-2 rounded-xl bg-blue-600 py-3 text-sm font-semibold disabled:opacity-40"><Upload size={16} />{uploading ? '영상 분석 중…' : '영상 선택하여 분석'}</button>
       {uploadMessage && <p role="status" className="mt-3 text-sm leading-6 text-blue-200">{uploadMessage}</p>}
       {uploadError && <p role="alert" className="mt-3 text-sm text-red-300">{uploadError}</p>}
-      {analysisResult && <a href="#baby-status" className="mt-3 block text-sm text-blue-300 underline">맨 위에서 분석 결과 보기 ↑</a>}
+      {analysisResult && <a href="#baby-status" className="mt-3 block text-sm text-blue-300 underline">대표 상태 확인 ↑</a>}
     </section>
   </main>
 }

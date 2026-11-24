@@ -34,7 +34,8 @@ def model():
     return {'emotion':'배고픔','need':'feeding','confidence':.5,'message':'model feeding',
         'normalOverride':False,'topPredictions':[
             {'emotion':'배고픔','need':'feeding','confidence':.5,'message':'model feeding'},
-            {'emotion':'잠와요','need':'sleep','confidence':.48,'message':'model sleep'}]}
+            {'emotion':'잠와요','need':'sleep','confidence':.48,'message':'model sleep'},
+            {'emotion':'불편함','need':'care','confidence':.1,'message':'model care'}]}
 
 
 def test_record_crud_auth_idempotency_revision_and_delete(client, auth):
@@ -232,6 +233,7 @@ def test_worker_persists_adjusted_state_and_alerts_after_three(db, client, auth,
     with Session(db) as session:
         events=session.exec(select(EmotionEvent)).all()
         assert len(events)==3 and all(e.need=='sleep' for e in events)
+        assert all(len(e.top_predictions)==3 for e in events)
         alert=session.exec(select(NotificationEvent)).one()
         assert alert.result['need']=='sleep' and alert.result['careContext']['applied']
     sent=[]

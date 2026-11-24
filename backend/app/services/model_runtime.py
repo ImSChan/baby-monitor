@@ -182,7 +182,7 @@ def predict_from_paths(
         'need': final_result['need'],
         'message': final_result['message'],
         'topPredictions': final_result.get('topPredictions', []),
-        'fusion_method': final_result.get('fusion_method', 'worker_late_fusion_top2'),
+        'fusion_method': final_result.get('fusion_method', 'worker_late_fusion_top3'),
         'normalOverride': final_result.get('normalOverride', False),
         'normalOverrideReason': final_result.get('normalOverrideReason'),
         'audioMetrics': {
@@ -339,13 +339,14 @@ def fuse_results(
                     **best,
                     'message': best.get('message') or '낮은 확률의 후보 상태입니다.',
                 }),
+                *[prediction_copy(item) for item in sorted_candidates[1:2]],
             ],
             'fusion_method': 'low_confidence_normal_override',
             'normalOverride': True,
             'normalOverrideReason': 'low_confidence',
         }
     top_predictions = [
-        prediction_copy(item) for item in sorted_candidates[:2]
+        prediction_copy(item) for item in sorted_candidates[:3]
     ]
     return {
         'emotion': best['emotion'],
@@ -353,7 +354,7 @@ def fuse_results(
         'need': best['need'],
         'message': best['message'],
         'topPredictions': top_predictions,
-        'fusion_method': 'worker_late_fusion_top2',
+        'fusion_method': 'worker_late_fusion_top3',
         'normalOverride': False,
         'normalOverrideReason': None,
     }

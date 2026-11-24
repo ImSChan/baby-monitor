@@ -23,7 +23,8 @@ def test_dashboard_works_without_retired_tables_and_preserves_account_scope(db, 
     with TestClient(app) as client:
         assert client.get('/api/dashboard').status_code == 403
         data = client.get('/api/dashboard', headers=auth(1)).json()
-        assert set(data) == {'currentEmotion', 'cameras', 'alerts'}
+        assert set(data) == {'currentEmotion', 'confirmedEmotion', 'cameras', 'alerts'}
+        assert data['confirmedEmotion'] is None
         assert data['currentEmotion']['emotion'] == 'stable'
         assert data['cameras']['totalCount'] == 1
         assert data['cameras']['items'][0]['name'] == 'My camera'

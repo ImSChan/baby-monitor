@@ -1,7 +1,7 @@
 import { expect, it } from 'vitest'
 import { analysisDate, babyStatus, distribution, predictions, score } from './babyStatus'
 it('uses the final need rather than the emotional label for care guidance', () => {
-  expect(babyStatus({ emotion: '배고픔', need: 'stable' }).label).toBe('편안함')
+  expect(babyStatus({ emotion: '배고픔', need: 'stable' }).label).toBe('안정')
   expect(babyStatus({ emotion: '졸림' }).key).toBe('sleep')
   expect(babyStatus({ emotion: '알 수 없음' }).label).toBe('알 수 없음')
 })

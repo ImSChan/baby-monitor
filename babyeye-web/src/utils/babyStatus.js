@@ -1,8 +1,8 @@
 const STATES = {
   feeding: { key: 'feeding', label: '배고픔', icon: '🍼', title: '배가 고픈 것 같아요', hint: '수유가 필요한지 살펴봐 주세요.', color: 'bg-amber-300' },
   sleep: { key: 'sleep', label: '졸림', icon: '🌙', title: '잠이 오는 것 같아요', hint: '편안하게 쉴 수 있는지 살펴봐 주세요.', color: 'bg-indigo-300' },
-  care: { key: 'care', label: '돌봄 필요', icon: '🤲', title: '돌봄이 필요한 것 같아요', hint: '기저귀나 자세 등 불편한 곳이 있는지 살펴봐 주세요.', color: 'bg-rose-300' },
-  stable: { key: 'stable', label: '편안함', icon: '🍃', title: '편안한 상태로 보여요', hint: '최근 분석에서 특별한 요구가 감지되지 않았어요.', color: 'bg-emerald-300' },
+  care: { key: 'care', label: '불편함', icon: '🤲', title: '돌봄이 필요한 것 같아요', hint: '기저귀나 자세 등 불편한 곳이 있는지 살펴봐 주세요.', color: 'bg-rose-300' },
+  stable: { key: 'stable', label: '안정', icon: '🍃', title: '편안한 상태로 보여요', hint: '최근 분석에서 특별한 요구가 감지되지 않았어요.', color: 'bg-emerald-300' },
 }
 const aliases = {
   feeding: 'feeding', hungry: 'feeding', 배고픔: 'feeding', 배고파요: 'feeding',
@@ -18,7 +18,7 @@ export function babyStatus(result) {
 }
 export function predictions(result) {
   const top = result?.topPredictions?.length ? result.topPredictions : result?.top_predictions
-  return (top?.length ? top : result ? [result] : []).slice(0, 2)
+  return (top?.length ? top : result ? [result] : []).slice(0, 3)
 }
 export function score(value) {
   if (value === null || value === undefined || value === '') return null

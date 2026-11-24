@@ -81,6 +81,31 @@ def main():
                 raise HTTPException(400, 'Local fixture account only')
             return {'access_token': auth.create_access_token(user_id), 'mock': True}
 
+        @app.post('/mock/observe')
+        def observe(state: str = 'care', count: int = 1):
+            from fastapi import HTTPException
+            labels = {'care':'불편함', 'feeding':'배고픔', 'sleep':'졸림', 'stable':'안정'}
+            if state not in labels or not 1 <= count <= 10:
+                raise HTTPException(422, 'Local fixture states only, count 1..10')
+            ids = []
+            for _ in range(count):
+                candidates = [{'need':state, 'emotion':labels[state], 'confidence':.87}]
+                candidates += [{'need':key, 'emotion':labels[key], 'confidence':score}
+                    for key, score in zip([key for key in ('care','feeding','sleep') if key != state], (.20,.12))]
+                with Session(engine) as session:
+                    event = EmotionEvent(user_id=1, emotion=labels[state], need=state,
+                        confidence=.87, captured_at=kst_now(), top_predictions=candidates)
+                    session.add(event); session.flush()
+                    result = {'emotion':event.emotion,'need':state,'confidence':.87,
+                        'topPredictions':candidates,'emotionEventId':event.id}
+                    rid = str(uuid4()); directory = inference.UPLOAD_ROOT / rid; directory.mkdir()
+                    (directory / 'metadata.json').write_text(json.dumps({'request_id':rid,
+                        'user_id':1,'status':'completed','synthetic':True,'result':result}),encoding='utf-8')
+                    enqueue_notification(session,event,rid,result)
+                    session.commit(); ids.append(event.id)
+            drain()
+            return {'mock':True,'eventIds':ids,'transport':'captured-not-real-FCM'}
+
         @app.get('/mock/outbox')
         def mock_outbox():
             return {'items': outbox, 'transport': 'captured-not-real-FCM'}

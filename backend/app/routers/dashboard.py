@@ -4,6 +4,7 @@ from sqlmodel import Session, select
 from app.database import get_session
 from app.deps import get_current_user_id
 from app.models import Alert, Camera, EmotionEvent
+from app.services.confirmed_state_service import latest_confirmed_event
 
 router = APIRouter()
 
@@ -32,7 +33,9 @@ def get_dashboard(
         .limit(5)
     ).all()
 
+    confirmed = latest_confirmed_event(session, current_user_id)
     return {
+        "confirmedEmotion": {**to_emotion_response(confirmed), "consecutiveCount": 3} if confirmed else None,
         "currentEmotion": to_emotion_response(latest_emotion) if latest_emotion else None,
         "cameras": {
             "totalCount": len(cameras),
