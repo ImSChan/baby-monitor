@@ -3,12 +3,10 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import HomePage from './HomePage'
-const mock = vi.hoisted(() => ({ dashboard: vi.fn(), history: vi.fn(), live: vi.fn(), preprocess: vi.fn(), upload: vi.fn(), user: { id: 1 }, token: 'one' }))
+const mock = vi.hoisted(() => ({ dashboard: vi.fn(), history: vi.fn(), live: vi.fn(), user: { id: 1 }, token: 'one' }))
 vi.mock('../api/dashboardApi', () => ({ getDashboard: mock.dashboard }))
 vi.mock('../api/emotionApi', () => ({ getEmotionHistory: mock.history }))
 vi.mock('../api/liveApi', () => ({ getLiveSessions: mock.live }))
-vi.mock('../api/inferenceApi', () => ({ requestMultimodalInference: mock.upload, getInferenceStatus: vi.fn(), getInferenceResult: vi.fn() }))
-vi.mock('../utils/videoPreprocess', () => ({ preprocessVideoForInference: mock.preprocess }))
 vi.mock('../contexts/AuthContext', () => ({ useAuth: () => ({ user: mock.user }) }))
 vi.mock('../api/authToken', () => ({ getAccessToken: () => mock.token }))
 const result = () => ({ id: 1, emotion: '배고픔', need: 'feeding', confidence: .82, created_at: new Date().toISOString(), topPredictions: [
@@ -50,7 +48,9 @@ it('shows an honest empty state with working analysis entry points', async () =>
   render(view())
   await screen.findByText('3회 연속 감지 대기 중')
   expect(screen.getByRole('link', { name: '홈캠 분석 시작' }).getAttribute('href')).toBe('/camera-host')
-  expect(screen.getByRole('button', { name: '영상 선택하여 분석' })).toBeTruthy()
+  expect(screen.queryByRole('region',{name:'영상으로 분석하기'})).toBeNull()
+  expect(screen.queryByRole('link',{name:/지난 12시간 돌아보기/})).toBeNull()
+  expect(screen.queryByLabelText('분석할 영상 선택')).toBeNull()
   expect(screen.getByRole('link', { name: '라이브 보기' }).getAttribute('href')).toBe('/live')
 })
 
@@ -99,18 +99,6 @@ it('does not restore the old account after a slow response', async () => {
   await screen.findByRole('heading',{name:'안정',exact:true})
   await act(async () => resolve({ currentEmotion: result(),confirmedEmotion:result() }))
   expect(screen.queryByRole('heading',{name:'배고픔',exact:true})).toBeNull()
-})
-
-it('cancels a late upload before sending media after leaving home', async () => {
-  let resolve
-  mock.preprocess.mockImplementation(() => new Promise(done => { resolve = done }))
-  const page = render(view())
-  await screen.findByRole('heading',{name:'배고픔',exact:true})
-  fireEvent.change(screen.getByLabelText('분석할 영상 선택'), { target: { files: [new File(['video'], 'baby.mp4', { type: 'video/mp4' })] } })
-  await waitFor(() => expect(mock.preprocess).toHaveBeenCalledTimes(1))
-  page.unmount()
-  await act(async () => resolve({ frameFiles: [new File(['frame'], 'frame.jpg')], audioFile: null }))
-  expect(mock.upload).not.toHaveBeenCalled()
 })
 
 it('offers a direct link for a camera returned by this account',async()=>{

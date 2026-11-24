@@ -1,20 +1,15 @@
 import HomeLiveCard from '../components/home/HomeLiveCard'
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { Link } from 'react-router-dom'
-import { ArrowRight, ChevronDown, RefreshCw, Upload, Video } from 'lucide-react'
+import { ChevronDown, RefreshCw } from 'lucide-react'
 import Header from '../components/common/Header'
 import BabyStatusOverview from '../components/home/BabyStatusOverview'
 import { getDashboard } from '../api/dashboardApi'
 import { getEmotionHistory } from '../api/emotionApi'
 import { getLiveSessions } from '../api/liveApi'
-import { getInferenceResult, getInferenceStatus, requestMultimodalInference } from '../api/inferenceApi'
 import { getAccessToken } from '../api/authToken'
 import { useAuth } from '../contexts/AuthContext'
 import { registerLiveCleanup } from '../services/liveResources'
-import { abortableDelay, throwIfAborted } from '../utils/abort'
-import { preprocessVideoForInference } from '../utils/videoPreprocess'
 import { analysisTime, babyStatus, distribution, formatAnalysisTime, score } from '../utils/babyStatus'
-import { localInput } from '../utils/careTime'
 
 export default function HomePage() {
   const { user } = useAuth()
@@ -22,11 +17,9 @@ export default function HomePage() {
 }
 
 function HomeContent() {
-  const fileInputRef = useRef(null)
   const pageEpochRef = useRef(0)
   const requestRef = useRef(0)
   const overviewAbortRef = useRef(null)
-  const uploadAbortRef = useRef(null)
   const [dashboardData, setDashboardData] = useState(null)
   const [history, setHistory] = useState([])
   const [liveSessions, setLiveSessions] = useState([])
@@ -35,11 +28,6 @@ function HomeContent() {
   const [refreshing, setRefreshing] = useState(false)
   const [errors, setErrors] = useState({})
   const [expanded, setExpanded] = useState(false)
-  const [uploading, setUploading] = useState(false)
-  const [uploadMessage, setUploadMessage] = useState('')
-  const [uploadError, setUploadError] = useState('')
-  const [analysisResult, setAnalysisResult] = useState(null)
-  const [videoCapturedAt, setVideoCapturedAt] = useState('')
 
   const loadOverview = useCallback(async ({ silent = false } = {}) => {
     overviewAbortRef.current?.abort()
@@ -78,95 +66,16 @@ function HomeContent() {
     loadOverview()
     const refresh = () => { if (!document.hidden) loadOverview({ silent: true }) }
     const timer = window.setInterval(refresh, 15000)
-    const unregister = registerLiveCleanup(() => { uploadAbortRef.current?.abort(); overviewAbortRef.current?.abort() })
+    const unregister = registerLiveCleanup(() => { overviewAbortRef.current?.abort() })
     document.addEventListener('visibilitychange', refresh)
     window.addEventListener('babyeye:notifications', refresh)
     return () => {
-      pageEpochRef.current++; overviewAbortRef.current?.abort(); uploadAbortRef.current?.abort()
+      pageEpochRef.current++; overviewAbortRef.current?.abort()
       unregister(); window.clearInterval(timer)
       document.removeEventListener('visibilitychange', refresh)
       window.removeEventListener('babyeye:notifications', refresh)
     }
   }, [loadOverview])
-
-  async function handleVideoSelected(event) {
-    const file = event.target.files?.[0]
-
-    if (!file) {
-      return
-    }
-
-    uploadAbortRef.current?.abort()
-    const controller = new AbortController(), token = getAccessToken()
-    uploadAbortRef.current = controller
-    const signal = controller.signal
-    try {
-      setUploading(true)
-      setUploadMessage('분석할 영상을 준비하고 있어요.')
-      setUploadError('')
-      setAnalysisResult(null)
-
-      const preprocessed = await preprocessVideoForInference(file, {
-        framesPerSecond: 1,
-        maxFrames: 20,
-        maxWidth: 640,
-        onProgress: message => { if (!signal.aborted) setUploadMessage('분석할 영상을 준비하고 있어요.') },
-      })
-
-      throwIfAborted(signal)
-      if (token !== getAccessToken()) return
-      if (preprocessed.frameFiles.length === 0 && !preprocessed.audioFile) {
-        throw new Error('이 영상에서 분석할 자료를 준비하지 못했어요. 다른 영상으로 시도해주세요.')
-      }
-
-      setUploadMessage('준비한 영상을 분석 서버에 보내고 있어요.')
-
-      const queued = await requestMultimodalInference({
-        audioFile: preprocessed.audioFile,
-        frameFiles: preprocessed.frameFiles,
-        capturedAt: videoCapturedAt ? new Date(videoCapturedAt).toISOString() : new Date().toISOString(),
-        careContextAllowed: Boolean(videoCapturedAt),
-        frameRate: preprocessed.frameRate,
-        durationSeconds: preprocessed.durationSeconds,
-        audioRmsDbfs: preprocessed.audioMetrics?.rmsDbfs,
-        audioPeakDbfs: preprocessed.audioMetrics?.peakDbfs,
-        quietAudio: preprocessed.audioMetrics?.quietAudio,
-        signal,
-      })
-
-      throwIfAborted(signal)
-      const requestId = queued.requestId
-
-      if (!requestId) {
-        throw new Error('분석 요청을 확인할 수 없어요. 다시 시도해주세요.')
-      }
-
-      setUploadMessage('분석을 기다리고 있어요.')
-
-      const completedResult = await waitForInferenceCompleted(requestId, {
-        signal,
-        onProgress: message => { if (!signal.aborted) setUploadMessage(message) },
-      })
-
-      throwIfAborted(signal)
-      setAnalysisResult({
-        ...completedResult.result,
-        analyzedAt: new Date().toISOString(),
-        requestId,
-        saved: completedResult.saved,
-      })
-
-      setUploadMessage('분석을 완료했어요. 대표 상태는 같은 상태가 3회 연속 감지되면 갱신돼요.')
-      await loadOverview({ silent: true })
-    } catch (err) {
-      if (!signal.aborted) { setUploadError(err.message || '영상 분석 요청 중 오류가 발생했습니다.'); setUploadMessage('') }
-    } finally {
-      if (uploadAbortRef.current === controller) {
-        setUploading(false)
-        if (fileInputRef.current) fileInputRef.current.value = ''
-      }
-    }
-  }
 
   const confirmed=dashboardData?.confirmedEmotion || null
   const confirmedUnavailable=errors.dashboard || Boolean(dashboardData&&!Object.prototype.hasOwnProperty.call(dashboardData,'confirmedEmotion'))
@@ -198,49 +107,5 @@ function HomeContent() {
       </div>
     </section>
 
-    <Link to="/reviews" className="flex items-center justify-between gap-3 rounded-2xl border border-blue-300/15 bg-blue-400/5 p-4"><div><p className="text-sm font-semibold text-blue-200">지난 12시간 돌아보기</p><p className="mt-1 text-xs leading-5 text-slate-400">알림이 왔던 상황을 모아 보고 실제 상태를 알려주세요.</p></div><ArrowRight size={18} className="shrink-0 text-blue-300" /></Link>
-
-    <section aria-label="영상으로 분석하기" className="rounded-3xl border border-slate-700/60 bg-slate-900/60 p-5">
-      <div className="flex items-center gap-2"><Video size={18} className="text-blue-300" /><h2 className="font-bold">영상으로 분석하기</h2></div>
-      <p className="mt-2 text-sm leading-6 text-slate-400">저장된 영상으로도 아이의 상태를 확인할 수 있어요.</p>
-      <label className="mt-3 block text-xs text-slate-300">촬영 날짜와 시각 · 선택<input aria-label="영상 촬영 시각" type="datetime-local" max={localInput()} disabled={uploading} value={videoCapturedAt} onChange={e=>setVideoCapturedAt(e.target.value)} className="mt-2 w-full min-w-0 rounded-xl bg-slate-800 p-3"/></label>
-      <p className="mt-2 text-[11px] leading-5 text-slate-500">시각을 입력하면 당시 육아 기록을 참고해요. 모르면 비워두세요.</p>
-      <input ref={fileInputRef} type="file" aria-label="분석할 영상 선택" accept="video/*" className="hidden" onChange={handleVideoSelected} />
-      <button disabled={uploading} onClick={() => fileInputRef.current?.click()} className="mt-4 flex w-full items-center justify-center gap-2 rounded-xl bg-blue-600 py-3 text-sm font-semibold disabled:opacity-40"><Upload size={16} />{uploading ? '영상 분석 중…' : '영상 선택하여 분석'}</button>
-      {uploadMessage && <p role="status" className="mt-3 text-sm leading-6 text-blue-200">{uploadMessage}</p>}
-      {uploadError && <p role="alert" className="mt-3 text-sm text-red-300">{uploadError}</p>}
-      {analysisResult && <a href="#baby-status" className="mt-3 block text-sm text-blue-300 underline">대표 상태 확인 ↑</a>}
-    </section>
   </main>
-}
-
-async function waitForInferenceCompleted(requestId, options = {}) {
-  const onProgress = options.onProgress || (() => {})
-  const signal = options.signal
-  const maxAttempts = options.maxAttempts || 60
-  const intervalMs = options.intervalMs || 2000
-
-  for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
-    throwIfAborted(signal)
-    const status = await getInferenceStatus(requestId, { signal })
-
-    if (status.status === 'completed') {
-      onProgress('분석 결과를 불러오고 있어요.')
-      return getInferenceResult(requestId, { signal })
-    }
-
-    if (status.status === 'failed') {
-      throw new Error(status.message || '분석 작업이 실패했습니다.')
-    }
-
-    if (status.status === 'processing') {
-      onProgress('아이의 상태를 분석하고 있어요.')
-    } else {
-      onProgress('분석을 기다리고 있어요.')
-    }
-
-    await abortableDelay(intervalMs, signal)
-  }
-
-  throw new Error('분석 작업 시간이 초과되었습니다.')
 }
