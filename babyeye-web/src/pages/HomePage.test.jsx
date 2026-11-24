@@ -3,8 +3,8 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import HomePage from './HomePage'
-const mock = vi.hoisted(() => ({ dashboard: vi.fn(), history: vi.fn(), live: vi.fn(), user: { id: 1 }, token: 'one' }))
-vi.mock('../api/dashboardApi', () => ({ getDashboard: mock.dashboard }))
+const mock = vi.hoisted(() => ({ notification: vi.fn(), history: vi.fn(), live: vi.fn(), user: { id: 1 }, token: 'one' }))
+vi.mock('../api/notificationApi', () => ({ getLatestStateNotification: mock.notification }))
 vi.mock('../api/emotionApi', () => ({ getEmotionHistory: mock.history }))
 vi.mock('../api/liveApi', () => ({ getLiveSessions: mock.live }))
 vi.mock('../contexts/AuthContext', () => ({ useAuth: () => ({ user: mock.user }) }))
@@ -16,7 +16,7 @@ const view = () => <MemoryRouter><HomePage /></MemoryRouter>
 afterEach(() => { cleanup(); vi.restoreAllMocks() })
 beforeEach(() => {
   vi.clearAllMocks(); mock.user = { id: 1 }; mock.token = 'one'
-  mock.dashboard.mockResolvedValue({ currentEmotion: result(),confirmedEmotion:result() })
+  mock.notification.mockResolvedValue(result())
   mock.history.mockResolvedValue(Array.from({ length: 6 }, (_, i) => ({ ...result(), id: i + 1 })))
   mock.live.mockResolvedValue([])
 })
@@ -44,9 +44,9 @@ it('places the live hub after the baby summary and before history without the tr
 })
 
 it('shows an honest empty state with working analysis entry points', async () => {
-  mock.dashboard.mockResolvedValue({ currentEmotion: null,confirmedEmotion:null }); mock.history.mockResolvedValue([])
+  mock.notification.mockResolvedValue(null); mock.history.mockResolvedValue([])
   render(view())
-  await screen.findByText('3회 연속 감지 대기 중')
+  await screen.findByText('아직 상태 알림이 없어요')
   expect(screen.getByRole('link', { name: '홈캠 분석 시작' }).getAttribute('href')).toBe('/camera-host')
   expect(screen.queryByRole('region',{name:'영상으로 분석하기'})).toBeNull()
   expect(screen.queryByRole('link',{name:/지난 12시간 돌아보기/})).toBeNull()
@@ -71,33 +71,33 @@ it('does not wait for a hanging live server to show the analysis', async () => {
 })
 
 it('distinguishes an unavailable server from an account with no analyses', async () => {
-  mock.dashboard.mockRejectedValue(new Error('offline')); mock.history.mockRejectedValue(new Error('offline'))
+  mock.notification.mockRejectedValue(new Error('offline')); mock.history.mockRejectedValue(new Error('offline'))
   render(view())
   await screen.findByText('대표 상태를 불러오지 못했어요')
-  expect(screen.queryByText('3회 연속 감지 대기 중')).toBeNull()
+  expect(screen.queryByText('아직 상태 알림이 없어요')).toBeNull()
 })
 
 it('refreshes analysis even when no live viewer is connected', async () => {
   const timer = vi.spyOn(window, 'setInterval')
   render(view())
   await screen.findByRole('heading',{name:'배고픔',exact:true})
-  mock.dashboard.mockResolvedValue({ confirmedEmotion: { ...result(), need: 'stable', emotion: '안정', created_at: new Date(Date.now() + 1000).toISOString() } })
+  mock.notification.mockResolvedValue({ ...result(), need: 'stable', emotion: '안정', created_at: new Date(Date.now() + 1000).toISOString() })
   const callback = timer.mock.calls.find(([, ms]) => ms === 15000)[0]
   await act(async () => callback())
   await screen.findByRole('heading',{name:'안정',exact:true})
-  expect(mock.dashboard).toHaveBeenCalledTimes(2)
+  expect(mock.notification).toHaveBeenCalledTimes(2)
 })
 
 it('does not restore the old account after a slow response', async () => {
   let resolve
-  mock.dashboard.mockImplementationOnce(() => new Promise(done => { resolve = done }))
+  mock.notification.mockImplementationOnce(() => new Promise(done => { resolve = done }))
   const page = render(view())
   mock.user = { id: 2 }; mock.token = 'two'
-  mock.dashboard.mockResolvedValue({ confirmedEmotion: { ...result(), need: 'stable', emotion: '안정' } })
+  mock.notification.mockResolvedValue({ ...result(), need: 'stable', emotion: '안정' })
   mock.history.mockResolvedValue([])
   page.rerender(view())
   await screen.findByRole('heading',{name:'안정',exact:true})
-  await act(async () => resolve({ currentEmotion: result(),confirmedEmotion:result() }))
+  await act(async () => resolve(result()))
   expect(screen.queryByRole('heading',{name:'배고픔',exact:true})).toBeNull()
 })
 
@@ -108,19 +108,19 @@ it('offers a direct link for a camera returned by this account',async()=>{
   expect(screen.getByRole('link',{name:'홈캠 시작'}).getAttribute('href')).toBe('/camera-host')
 })
 
-it('uses the server three-hit result instead of the newer single prediction',async()=>{
-  mock.dashboard.mockResolvedValue({confirmedEmotion:{...result(),need:'care',emotion:'불편함'},currentEmotion:{...result(),need:'feeding',emotion:'배고픔',created_at:new Date(Date.now()+1000).toISOString()}})
+it('uses an old read notification instead of newer single analysis history',async()=>{
+  mock.notification.mockResolvedValue({...result(),need:'care',emotion:'불편함',notificationId:42,created_at:'2025-01-01T10:00:00'})
   render(view());await screen.findByRole('heading',{name:'불편함',exact:true})
-  expect(screen.queryByText('아기 상태')).toBeNull();expect(screen.queryByText('아이에게 필요한 것을 한눈에')).toBeNull()
-  expect(screen.queryByText('돌봄이 필요한 것 같아요')).toBeNull()
+  expect(screen.getByRole('link',{name:'알림에서 실제 상태 알려주기'}).getAttribute('href')).toBe('/notifications/42')
+  expect(screen.queryByText('아기 상태')).toBeNull();expect(screen.queryByText('돌봄이 필요한 것 같아요')).toBeNull()
 })
-it('does not promote a single analysis while three-hit confirmation is absent',async()=>{
-  mock.dashboard.mockResolvedValue({currentEmotion:result(),confirmedEmotion:null})
-  render(view());await screen.findByText('3회 연속 감지 대기 중')
+it('does not replace a missing notification with single analysis history',async()=>{
+  mock.notification.mockResolvedValue(null)
+  render(view());await screen.findByText('아직 상태 알림이 없어요')
   expect(screen.queryByRole('heading',{name:'배고픔',exact:true})).toBeNull()
 })
-it('does not silently use a single result from an older server response',async()=>{
-  mock.dashboard.mockResolvedValue({currentEmotion:result()});render(view())
-  await screen.findByText('대표 상태를 불러오지 못했어요')
-  expect(screen.queryByRole('heading',{name:'배고픔',exact:true})).toBeNull()
+it('shows an existing alert without needing the new dashboard API',async()=>{
+  mock.notification.mockResolvedValue({...result(),notificationId:1});render(view())
+  await screen.findByRole('heading',{name:'배고픔',exact:true})
+  expect(screen.queryByText('대표 상태를 불러오지 못했어요')).toBeNull()
 })

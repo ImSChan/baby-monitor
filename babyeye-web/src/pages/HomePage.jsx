@@ -3,7 +3,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { ChevronDown, RefreshCw } from 'lucide-react'
 import Header from '../components/common/Header'
 import BabyStatusOverview from '../components/home/BabyStatusOverview'
-import { getDashboard } from '../api/dashboardApi'
+import { getLatestStateNotification } from '../api/notificationApi'
 import { getEmotionHistory } from '../api/emotionApi'
 import { getLiveSessions } from '../api/liveApi'
 import { getAccessToken } from '../api/authToken'
@@ -20,7 +20,7 @@ function HomeContent() {
   const pageEpochRef = useRef(0)
   const requestRef = useRef(0)
   const overviewAbortRef = useRef(null)
-  const [dashboardData, setDashboardData] = useState(null)
+  const [latestNotification, setLatestNotification] = useState(null)
   const [history, setHistory] = useState([])
   const [liveSessions, setLiveSessions] = useState([])
   const [liveLoading,setLiveLoading]=useState(true),[liveCheckedAt,setLiveCheckedAt]=useState(null)
@@ -55,7 +55,7 @@ function HomeContent() {
     loadPart('live', getLiveSessions(options), value => {setLiveSessions(Array.isArray(value) ? value : []);setLiveCheckedAt(Date.now())})
       .finally(()=>{if(active())setLiveLoading(false)})
     await Promise.all([
-      loadPart('dashboard', getDashboard(options), setDashboardData),
+      loadPart('notification', getLatestStateNotification(options), setLatestNotification),
       loadPart('history', getEmotionHistory(options), value => setHistory(Array.isArray(value) ? value : [])),
     ])
     if (active()) { setInitialLoading(false); setRefreshing(false) }
@@ -77,15 +77,14 @@ function HomeContent() {
     }
   }, [loadOverview])
 
-  const confirmed=dashboardData?.confirmedEmotion || null
-  const confirmedUnavailable=errors.dashboard || Boolean(dashboardData&&!Object.prototype.hasOwnProperty.call(dashboardData,'confirmedEmotion'))
+  const representative=latestNotification
   const breakdown = distribution(history)
   const shown = expanded ? history : history.slice(0, 4)
 
   return <main className="space-y-5 px-5 py-6">
     <Header actionsOnly showSettings />
-    <BabyStatusOverview result={confirmed} loading={initialLoading} unavailable={confirmedUnavailable} />
-    {errors.dashboard && <p role="alert" className="rounded-xl bg-amber-400/10 p-3 text-sm text-amber-200">최신 상태를 갱신하지 못했어요. 표시된 분석 시각을 확인해 주세요.<button onClick={() => loadOverview()} className="ml-2 underline">다시 시도</button></p>}
+    <BabyStatusOverview result={representative} loading={initialLoading} unavailable={errors.notification} />
+    {errors.notification && <p role="alert" className="rounded-xl bg-amber-400/10 p-3 text-sm text-amber-200">최근 상태 알림을 갱신하지 못했어요. 표시된 시각을 확인해 주세요.<button onClick={() => loadOverview()} className="ml-2 underline">다시 시도</button></p>}
 
     <HomeLiveCard sessions={liveSessions} loading={liveLoading} error={errors.live} checkedAt={liveCheckedAt} onRefresh={()=>loadOverview()}/>
     <section aria-label="최근 분석 흐름" className="rounded-3xl border border-slate-700/60 bg-slate-900/60 p-5">

@@ -9,15 +9,15 @@ export default function BabyStatusOverview({ result, loading, unavailable }) {
   const alternatives=predictions(result).filter(item=>{const key=babyStatus(item).key;if(seen.has(key))return false;seen.add(key);return true}).slice(0,2)
   return <section id="baby-status" aria-label="최근 아기 상태" className="scroll-mt-5 overflow-hidden rounded-[28px] border border-blue-300/25 bg-gradient-to-br from-[#182743] via-[#121e35] to-[#101b30] p-5">
     {result?<>
-      <div className="mb-4 flex items-center justify-between gap-2 text-xs text-slate-400"><p className="flex items-center gap-1.5"><Clock3 size={13}/>{formatAnalysisTime(time)} 분석</p><span className="shrink-0 text-[10px] text-blue-200/70">3회 연속 감지</span></div>
+      <div className="mb-4 flex items-center justify-between gap-2 text-xs text-slate-400"><p className="flex items-center gap-1.5"><Clock3 size={13}/>{formatAnalysisTime(time)} 분석</p><span className="shrink-0 text-[10px] text-blue-200/70">최근 상태 알림</span></div>
       <div aria-label="대표 상태" className="flex items-baseline gap-3"><h2 className="text-3xl font-bold tracking-tight text-white">{status.label}</h2><span className="text-sm tabular-nums text-slate-400">{confidence==null?'점수 없음':confidence+'%'}</span></div>
       <div className="mt-4 grid grid-cols-2 gap-3">{[0,1].map(index=>{
         const item=alternatives[index],value=score(item?.confidence)
         return <p key={index} className="flex flex-wrap items-baseline gap-x-1.5 gap-y-1 text-xs text-slate-400"><span className="text-[10px] text-slate-500">{index+2}순위</span>{item?<><span className="text-slate-300">{babyStatus(item).label}</span><span className="tabular-nums">{value==null?'점수 없음':value+'%'}</span></>:<span>기록 없음</span>}</p>
       })}</div>
-      <p className="mt-3 text-[10px] text-slate-500">AI 예측 점수 · 마지막 3회 연속 감지 결과</p>
-    </>:<div className="py-2"><p className="text-sm text-slate-300">{loading?'분석 상태를 확인하고 있어요':unavailable?'대표 상태를 불러오지 못했어요':'3회 연속 감지 대기 중'}</p><p className="mt-2 text-xs leading-5 text-slate-500">{unavailable?'연결 상태를 확인하고 다시 시도해주세요.':'같은 상태가 3회 연속 감지되면 여기에 표시돼요.'}</p>{!loading&&<Link to="/camera-host" className="mt-4 inline-flex rounded-xl bg-blue-600 px-4 py-3 text-sm font-semibold">홈캠 분석 시작</Link>}</div>}
+      <p className="mt-3 text-[10px] text-slate-500">AI 예측 점수 · 최근 상태 알림 기준</p>
+    </>:<div className="py-2"><p className="text-sm text-slate-300">{loading?'분석 상태를 확인하고 있어요':unavailable?'대표 상태를 불러오지 못했어요':'아직 상태 알림이 없어요'}</p><p className="mt-2 text-xs leading-5 text-slate-500">{unavailable?'연결 상태를 확인하고 다시 시도해주세요.':'상태 알림이 도착하면 가장 최근 알림의 상태를 여기에 표시해요.'}</p>{!loading&&<Link to="/camera-host" className="mt-4 inline-flex rounded-xl bg-blue-600 px-4 py-3 text-sm font-semibold">홈캠 분석 시작</Link>}</div>}
     <CareContextNote context={result?.careContext}/>
-    {result&&<Link to="/notifications" className="mt-4 flex items-center justify-between border-t border-white/10 pt-4 text-sm font-medium text-blue-200">알림에서 실제 상태 알려주기<ArrowUpRight size={17}/></Link>}
+    {result&&<Link to={result.notificationId?`/notifications/${result.notificationId}`:'/notifications'} className="mt-4 flex items-center justify-between border-t border-white/10 pt-4 text-sm font-medium text-blue-200">알림에서 실제 상태 알려주기<ArrowUpRight size={17}/></Link>}
   </section>
 }
