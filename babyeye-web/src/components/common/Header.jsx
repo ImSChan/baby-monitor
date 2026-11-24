@@ -1,7 +1,7 @@
 import { Link } from 'react-router-dom'
-import { Bell } from 'lucide-react'
+import { Bell, Settings } from 'lucide-react'
 
-function Header({ title = 'Baby Monitor', subtitle = '실시간 영아 상태 모니터링' }) {
+function Header({ title = 'Baby Monitor', subtitle = '실시간 영아 상태 모니터링', showSettings = false }) {
   return (
     <header className='mb-5 flex items-center justify-between'>
       <div>
@@ -11,6 +11,7 @@ function Header({ title = 'Baby Monitor', subtitle = '실시간 영아 상태 �
         </h1>
       </div>
 
+      <div className='flex shrink-0 items-center gap-2'>
       <Link
         to='/notifications'
         className='flex h-11 w-11 items-center justify-center rounded-2xl border border-slate-700 bg-slate-900 text-slate-200'
@@ -18,6 +19,8 @@ function Header({ title = 'Baby Monitor', subtitle = '실시간 영아 상태 �
       >
         <Bell size={20} />
       </Link>
+      {showSettings && <Link to="/settings" aria-label="설정" className="flex h-11 w-11 items-center justify-center rounded-2xl border border-slate-700 bg-slate-900 text-slate-200"><Settings size={20}/></Link>}
+      </div>
     </header>
   )
 }

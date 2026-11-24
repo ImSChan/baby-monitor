@@ -172,7 +172,7 @@ function HomeContent() {
   const shown = expanded ? history : history.slice(0, 4)
 
   return <main className="space-y-5 px-5 py-6">
-    <Header title="아기 상태" subtitle="아이에게 필요한 것을 한눈에" />
+    <Header title="아기 상태" subtitle="아이에게 필요한 것을 한눈에" showSettings />
     <BabyStatusOverview result={latest} loading={initialLoading} unavailable={errors.dashboard && errors.history} />
     {errors.dashboard && <p role="alert" className="rounded-xl bg-amber-400/10 p-3 text-sm text-amber-200">최신 상태를 갱신하지 못했어요. 표시된 분석 시각을 확인해 주세요.<button onClick={() => loadOverview()} className="ml-2 underline">다시 시도</button></p>}
 
