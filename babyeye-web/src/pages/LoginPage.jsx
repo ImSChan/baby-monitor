@@ -1,6 +1,6 @@
 
 import { useState } from 'react'
-import { Navigate, useNavigate, useLocation } from 'react-router-dom'
+import { Link, Navigate, useNavigate, useLocation } from 'react-router-dom'
 import { Baby, LogIn } from 'lucide-react'
 import { safeReturnPath } from '../utils/pushRoute'
 import { useAuth } from '../contexts/AuthContext'
@@ -11,7 +11,7 @@ export default function LoginPage() {
   const returnTo = safeReturnPath(location.state?.from)
   const { user, login } = useAuth()
 
-  const [email, setEmail] = useState('')
+  const [email, setEmail] = useState(location.state?.email || '')
   const [password, setPassword] = useState('')
   const [error, setError] = useState('')
   const [submitting, setSubmitting] = useState(false)
@@ -55,13 +55,14 @@ export default function LoginPage() {
         </p>
       </div>
 
+      {location.state?.registered && <p role="status" className="mb-5 text-sm text-emerald-300">가입을 완료했어요. 로그인해주세요.</p>}
       <form onSubmit={handleSubmit} className="space-y-5">
         <div>
           <label
             htmlFor="login-email"
             className="mb-2 block text-sm text-slate-300"
           >
-            이메일
+            아이디 (이메일)
           </label>
           <input
             id="login-email"
@@ -111,7 +112,7 @@ export default function LoginPage() {
       </form>
 
       <p className="mt-8 text-center text-xs text-slate-500">
-        계정 등록은 관리자에게 문의해주세요.
+        처음 사용하시나요? <Link to="/register" state={{from:returnTo}} className="ml-2 text-blue-300 underline">회원가입</Link>
       </p>
     </div>
   )

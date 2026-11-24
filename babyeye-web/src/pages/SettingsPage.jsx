@@ -10,7 +10,7 @@ const sections = [
   {
     title: '아이 정보',
     items: [
-      { icon: User, label: '프로필 관리', description: '아이 이름, 생년월일, 보호자 정보' },
+      { icon: User, label: '프로필 관리', description: '아이 이름과 현재 월령 수정', path: '/care' },
     ],
   },
   {
@@ -37,8 +37,8 @@ function SettingsPage() {
           </div>
 
           <div>
-            <h2 className='text-xl font-bold'>아기</h2>
-            <p className='mt-1 text-sm text-slate-400'>생후 8개월 · 보호자 계정</p>
+            <h2 className='text-xl font-bold'>{user?.name || '보호자'}</h2>
+            <p className='mt-1 text-sm text-slate-400'>보호자 계정 · 아이 정보는 육아 기록에서 관리해요</p>
           </div>
         </div>
       </Card>

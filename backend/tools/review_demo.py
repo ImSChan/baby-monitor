@@ -26,6 +26,7 @@ def main():
         os.environ['DATABASE_URL'] = 'sqlite:///' + (root / 'demo.db').as_posix()
         os.environ['JWT_SECRET_KEY'] = 'local-mock-only-secret-not-production-12345'
         os.environ['PUSH_ENABLED'] = 'true'
+        os.environ['ALLOW_REGISTRATION'] = 'true'  # Loopback, temporary SQLite only
         os.environ['CORS_ORIGINS'] = 'http://127.0.0.1:5179'
         os.environ['LIVE_ICE_SERVERS'] = '[]'
         os.environ['USER_WEIGHTS_DIR'] = str(root / 'weights')
@@ -35,7 +36,7 @@ def main():
         from fastapi.middleware.cors import CORSMiddleware
         from sqlmodel import SQLModel, Session, select
         from app.database import engine
-        from app.models import AppUser, EmotionEvent, NotificationPreference, PushDevice, ReviewSchedule
+        from app.models import CareProfile, AppUser, EmotionEvent, NotificationPreference, PushDevice, ReviewSchedule
         from app.routers import push, reviews, feedback, inference, auth, care, dashboard, emotions, training, live, cameras
         from app.services.notification_service import enqueue_notification
         from app.services.review_service import enqueue_reviews
@@ -48,6 +49,7 @@ def main():
             session.add(AppUser(id=1, email='review-mock@example.invalid', name='Mock review demo'))
             session.add(AppUser(id=2, email='other-mock@example.invalid', name='Other mock account'))
             session.commit()
+            session.add(CareProfile(user_id=1, child_name="Mock baby", child_age_months=10, age_recorded_on=(kst_now()-timedelta(days=14)).date()))
             session.add(NotificationPreference(user_id=1, enabled=True, enabled_at=kst_now() - timedelta(days=1)))
             session.add(PushDevice(user_id=1, token='local-mock-token-not-a-real-device', installation_id=str(uuid4())))
             session.commit()

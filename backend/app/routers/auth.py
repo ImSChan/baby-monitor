@@ -11,7 +11,9 @@ from sqlalchemy.exc import IntegrityError
 from sqlmodel import Session, select
 
 from app.database import get_session
-from app.models import AppUser
+from app.models import AppUser, CareProfile
+from app.services.child_profile_service import ChildInput
+from app.utils.time import kst_now
 
 router = APIRouter()
 security = HTTPBearer()
@@ -21,10 +23,10 @@ JWT_ALGORITHM = "HS256"
 JWT_EXPIRE_MINUTES = 60
 
 
-class RegisterRequest(BaseModel):
+class RegisterRequest(ChildInput):
     email: EmailStr
     password: str = Field(min_length=8, max_length=128)
-    name: str = Field(min_length=1, max_length=100)
+    name: str = Field(default="보호자", min_length=1, max_length=100)
 
 
 class LoginRequest(BaseModel):
@@ -134,6 +136,9 @@ def register(
 
     session.add(user)
     try:
+        session.flush()
+        session.add(CareProfile(user_id=user.id, child_name=data.child_name,
+            child_age_months=data.child_age_months, age_recorded_on=kst_now().date()))
         session.commit()
     except IntegrityError:
         session.rollback()

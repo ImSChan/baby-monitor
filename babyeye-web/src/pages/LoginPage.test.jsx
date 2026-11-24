@@ -11,7 +11,7 @@ it('returns to the selected result after successful login', async () => {
     <Routes><Route path="/login" element={<LoginPage />} />
     <Route path="/notifications/42" element={<p>원래 결과</p>} /></Routes>
   </MemoryRouter>)
-  fireEvent.change(screen.getByLabelText('이메일'), { target: { value: 'one@example.com' } })
+  fireEvent.change(screen.getByLabelText('아이디 (이메일)'), { target: { value: 'one@example.com' } })
   fireEvent.change(screen.getByLabelText('비밀번호'), { target: { value: 'password' } })
   fireEvent.submit(screen.getByRole('button', { name: '로그인' }).closest('form'))
   await screen.findByText('원래 결과')

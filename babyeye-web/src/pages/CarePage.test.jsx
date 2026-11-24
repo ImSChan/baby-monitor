@@ -6,7 +6,7 @@ import CarePage from './CarePage'
 const mock=vi.hoisted(()=>({get:vi.fn(),post:vi.fn(),user:{id:1}}))
 vi.mock('../api/client',()=>({apiGet:mock.get,apiPost:mock.post}))
 vi.mock('../contexts/AuthContext',()=>({useAuth:()=>({user:mock.user})}))
-const info={ageMonths:10,contextEnabled:true,context:{lastMealAt:null,recordedSleepMinutes24h:0}}
+const info={childName:"별이",ageMonths:10,contextEnabled:true,context:{lastMealAt:null,recordedSleepMinutes24h:0}}
 const view=()=> <MemoryRouter><CarePage/></MemoryRouter>
 beforeEach(()=>{
   vi.clearAllMocks();mock.user={id:1}
@@ -68,4 +68,12 @@ it('ignores the previous account while loading records',async()=>{
   await screen.findByText('아직 기록이 없어요. 방금 먹거나 잔 시간부터 남겨보세요.')
   await act(async()=>resolve({items:[{id:'old',kind:'feeding',mealType:'snack',startedAt:new Date().toISOString(),revision:1}]}))
   expect(screen.queryByText('🍌 간식')).toBeNull()
+})
+
+ it('lets existing users save child age and reload the summary',async()=>{
+  render(view());fireEvent.click(await screen.findByRole('button',{name:'아이 정보 수정'}))
+  fireEvent.change(screen.getByLabelText('현재 월령 (개월)'),{target:{value:'14'}})
+  fireEvent.click(screen.getByRole('button',{name:'아이 정보 저장'}))
+  await waitFor(()=>expect(mock.post).toHaveBeenCalledWith('/api/care/profile',{child_name:'별이',child_age_months:14}))
+  await screen.findByText('아이 정보를 저장했어요. 다음 분석부터 적용해요.')
 })

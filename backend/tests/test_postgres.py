@@ -34,7 +34,7 @@ def pg():
         with engine.begin() as connection:
             connection.execute(text('ALTER TABLE inference_feedback DROP COLUMN learning_group'))
             connection.execute(text('ALTER TABLE emotion_events DROP COLUMN care_context'))
-        migrations = [(Path(__file__).parents[1] / 'migrations' / name).read_text(encoding='utf-8') for name in ['001_push.sql', '002_notification_inbox.sql', '003_training_eligibility.sql', '004_feedback_review.sql', '006_care_records.sql']]
+        migrations = [(Path(__file__).parents[1] / 'migrations' / name).read_text(encoding='utf-8') for name in ['001_push.sql', '002_notification_inbox.sql', '003_training_eligibility.sql', '004_feedback_review.sql', '006_care_records.sql', '007_child_profile.sql']]
         # psycopg2 runs the explicit BEGIN/COMMIT migration exactly as psql does.
         for _ in range(2):
             raw = engine.raw_connection()
@@ -184,3 +184,20 @@ def test_concurrent_overlapping_sleep_is_serialized(pg):
                 return error.status_code
     with ThreadPoolExecutor(max_workers=2) as pool:
         assert sorted(pool.map(lambda _:insert(),range(2)))==[201,409]
+
+
+def test_child_profile_migration_and_age_constraint(pg):
+    from sqlalchemy import inspect
+    from sqlalchemy.exc import IntegrityError
+    columns={column['name']:column for column in inspect(pg).get_columns('care_profiles')}
+    assert {'child_name','child_age_months','age_recorded_on'} <= columns.keys()
+    assert columns['child_age_months']['nullable']
+    with pg.begin() as connection:
+        connection.execute(text('INSERT INTO care_profiles(user_id) VALUES (1)'))
+        assert connection.execute(text('SELECT child_age_months FROM care_profiles WHERE user_id=1')).scalar() is None
+    for assignment in ["child_age_months=-1, age_recorded_on=CURRENT_DATE", "child_age_months=6, age_recorded_on=NULL"]:
+        with pytest.raises(IntegrityError):
+            with pg.begin() as connection:
+                connection.execute(text('UPDATE care_profiles SET '+assignment+' WHERE user_id=1'))
+    with pg.begin() as connection:
+        connection.execute(text('UPDATE care_profiles SET child_age_months=10, age_recorded_on=CURRENT_DATE WHERE user_id=1'))

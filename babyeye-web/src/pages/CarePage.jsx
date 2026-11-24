@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { Milk, Moon, Plus, X } from 'lucide-react'
 import Header from '../components/common/Header'
 import SleepRangePicker from '../components/care/SleepRangePicker'
+import ChildProfileForm from '../components/care/ChildProfileForm'
 import { apiGet, apiPost } from '../api/client'
 import { useAuth } from '../contexts/AuthContext'
 import { careTime, durationText, localInput, sleepWindow } from '../utils/careTime'
@@ -70,7 +71,7 @@ function CareContent() {
   async function toggle(enabled){setBusy(true);try{await apiPost('/api/care/preferences',{context_enabled:enabled});setSummary(current=>({...current,contextEnabled:enabled}));setNotice('다음 분석부터 설정을 적용해요.')}catch(err){setError(err.message)}finally{setBusy(false)}}
   async function remove(row){setBusy(true);try{await apiPost(`/api/care/records/${row.id}/delete?expected_revision=${row.revision}`,{});setDeleting(null);setNotice('기록을 삭제했어요. 이후 분석에서는 참고하지 않아요.');await load()}catch(err){setError(err.message)}finally{setBusy(false)}}
   return <main className="space-y-5 px-5 py-6"><Header title="육아 기록" subtitle="먹고 잔 시간을 간편하게"/>
-    <div className="rounded-2xl border border-blue-300/15 bg-blue-400/5 p-4"><p className="text-sm font-semibold text-blue-200">10개월 아이 기준으로 참고해요</p><p className="mt-2 text-xs leading-5 text-slate-400">시간만으로 배고픔·졸림을 단정하지 않고 영상·소리 분석을 보조해요.</p></div>
+    {summary&&<ChildProfileForm profile={summary} saved={()=>{setNotice('아이 정보를 저장했어요. 다음 분석부터 적용해요.');load()}}/>}
     {error&&<p role="alert" className="text-sm text-red-300">{error}<button onClick={load} className="ml-2 underline">새로고침</button></p>}
     {notice&&<p role="status" className="text-sm text-emerald-300">{notice}</p>}
     <div className="grid grid-cols-2 gap-3"><button onClick={()=>setForm({kind:'feeding'})} className="rounded-2xl border border-amber-300/20 bg-amber-300/5 p-4 text-left"><Milk size={25} className="text-amber-200"/><p className="mt-3 font-bold">식사 기록 <Plus size={14} className="inline"/></p><p className="mt-1 text-xs text-slate-400">먹은 시각 선택</p></button><button onClick={()=>setForm({kind:'sleep'})} className="rounded-2xl border border-indigo-300/20 bg-indigo-300/5 p-4 text-left"><Moon size={25} className="text-indigo-200"/><p className="mt-3 font-bold">수면 기록 <Plus size={14} className="inline"/></p><p className="mt-1 text-xs text-slate-400">드래그로 구간 선택</p></button></div>
@@ -79,7 +80,16 @@ function CareContent() {
       {rows.map(row=><article key={row.id} className="rounded-2xl border border-slate-700/60 p-4"><p className="font-semibold">{row.kind==='sleep'?'🌙 수면':row.mealType==='meal'?'🥣 이유식':row.mealType==='milk'?'🍼 수유':'🍌 간식'}</p><p className="mt-2 text-xs leading-6 text-slate-300">{careTime(row.startedAt)}{row.endedAt?` → ${careTime(row.endedAt)}`:''}</p>{row.endedAt&&<p className="text-xs text-indigo-200">{durationText((new Date(row.endedAt)-new Date(row.startedAt))/60000)}</p>}<div className="mt-3 flex gap-4 text-xs"><button onClick={()=>setForm({kind:row.kind,item:row})} className="text-blue-300">수정</button><button onClick={()=>setDeleting(row.id)} className="text-slate-400">삭제</button></div>{deleting===row.id&&<div className="mt-3 rounded-lg bg-slate-800 p-3 text-sm"><p>이 기록을 삭제할까요?</p><div className="mt-3 flex gap-4"><button disabled={busy} onClick={()=>remove(row)} className="text-red-300">삭제하기</button><button disabled={busy} onClick={()=>setDeleting(null)}>취소</button></div></div>}</article>)}
       {more&&<p className="text-xs text-slate-400">최근 기록 200개를 표시했어요.</p>}
     </section>
-    <details className="rounded-2xl border border-slate-700 p-4 text-sm"><summary className="cursor-pointer font-semibold">10개월 참고 기준과 출처</summary><div className="mt-3 space-y-3 text-xs leading-6 text-slate-400"><p>아이사랑의 10~12개월 안내는 이유식 하루 3회와 아이의 배고픔·포만 신호 관찰을 설명해요. 모든 아이에게 적용할 고정 식사 간격은 정하지 않아요.</p><p>CDC의 4~12개월 수면 안내는 낮잠을 포함한 하루 12~16시간이에요. 기록된 시간이 이보다 짧다는 이유만으로 수면 부족이나 졸림으로 판단하지 않아요.</p><p>AI 보정에 쓰는 간격은 기록이 충분할 때 아이의 기록에서 계산해요. 의료 기준으로 정해진 시간이 아니에요.</p><a href="https://www.childcare.go.kr/?menuno=449" target="_blank" rel="noreferrer" className="block text-blue-300 underline">아이사랑 · 10~12개월 수유·영양</a><a href="https://www.cdc.gov/sleep/about/" target="_blank" rel="noreferrer" className="block text-blue-300 underline">CDC · 연령별 수면 안내</a></div></details>
+    <details className="rounded-2xl border border-slate-700 p-4 text-sm"><summary className="cursor-pointer font-semibold">월령별 참고 기준과 출처</summary><div className="mt-3 space-y-3 text-xs leading-6 text-slate-400">
+      {summary?.agePolicy?.sleepHours&&<p>현재 월령의 하루 수면 참고 범위: 낮잠 포함 {summary.agePolicy.sleepHours.join('~')}시간.</p>}
+      {summary?.agePolicy?.mealsPerDay&&<p>보완식 참고 횟수: 하루 {summary.agePolicy.mealsPerDay.join('~')}회. 수유와 아이의 배고픔·포만 신호를 함께 살펴주세요.</p>}
+      <p>6개월 미만은 수유 기록만 식사 간격에 참고해요. 간식은 식사 간격에서 제외해요. 같은 성장 단계·같은 식사 종류의 기록이 충분할 때 개인 간격을 계산해요.</p>
+      <p>0~3개월과 36개월 이상은 시간에 따른 AI 점수 보정을 하지 않아요. 월령이 없으면 보정하지 않아요.</p>
+      <p>일일 권장량을 고정된 식사·깨어 있는 시간 간격으로 환산하지 않아요. 기록 누락이 있을 수 있어 수면 부족을 판단하지 않아요. 기록만으로 학습 정답을 만들지 않아요.</p>
+      <a href="https://www.who.int/health-topics/complementary-feeding" target="_blank" rel="noreferrer" className="block text-blue-300 underline">WHO · 월령별 보완식 안내</a>
+      <a href="https://www.cdc.gov/sleep/about/" target="_blank" rel="noreferrer" className="block text-blue-300 underline">CDC · 연령별 수면 안내</a>
+      <a href="https://www.nichd.nih.gov/health/topics/sleep/conditioninfo/how-much" target="_blank" rel="noreferrer" className="block text-blue-300 underline">NIH · 신생아 포함 연령별 수면 안내</a>
+    </div></details>
     {form&&<CareForm {...form} close={()=>setForm(null)} saved={()=>{setNotice('기록했어요. 다음 분석부터 참고해요.');load()}}/>}
   </main>
 }

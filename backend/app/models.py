@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import date, datetime
 from typing import Any, Optional
 
 from sqlalchemy import Column, JSON, UniqueConstraint
@@ -254,3 +254,6 @@ class CareProfile(SQLModel, table=True):
     __tablename__ = "care_profiles"
     user_id: int = Field(primary_key=True, foreign_key="app_users.id")
     context_enabled: bool = True
+    child_name: Optional[str] = Field(default=None, max_length=100)
+    child_age_months: Optional[int] = None
+    age_recorded_on: Optional[date] = None

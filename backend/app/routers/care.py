@@ -11,6 +11,7 @@ from app.deps import get_current_user_id
 from app.models import CareProfile, CareRecord
 from app.services.care_context_service import build_care_snapshot, to_kst, stamp, SOURCES
 from app.utils.time import kst_now
+from app.services.child_profile_service import ChildInput, serialize_profile
 
 router = APIRouter()
 
@@ -79,8 +80,25 @@ def summary(session: Session = Depends(get_session), uid: int = Depends(get_curr
     now = kst_now()
     profile = session.get(CareProfile, uid)
     snapshot = build_care_snapshot(session, uid, now, respect_preference=False)
-    return {'ageMonths': 10, 'contextEnabled': profile.context_enabled if profile else True,
+    return {**serialize_profile(profile, now), 'contextEnabled': profile.context_enabled if profile else True,
             'context': snapshot, 'sources': SOURCES}
+
+
+@router.get('/profile')
+def child_profile(session: Session = Depends(get_session), uid: int = Depends(get_current_user_id)):
+    return serialize_profile(session.get(CareProfile, uid))
+
+
+@router.post('/profile')
+def save_child_profile(payload: ChildInput, session: Session = Depends(get_session), uid: int = Depends(get_current_user_id)):
+    lock_user(session, uid)
+    row = session.get(CareProfile, uid) or CareProfile(user_id=uid)
+    row.child_name = payload.child_name
+    row.child_age_months = payload.child_age_months
+    row.age_recorded_on = kst_now().date()
+    session.add(row)
+    session.commit()
+    return serialize_profile(row)
 
 
 @router.post('/preferences')

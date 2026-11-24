@@ -9,6 +9,15 @@ from app.services.care_context_service import build_care_snapshot, apply_care_co
 from app.utils.time import kst_now
 
 
+@pytest.fixture(autouse=True)
+def child_age_profile(db):
+    from app.models import CareProfile
+    with Session(db) as session:
+        session.add(CareProfile(user_id=1, child_name='아기', child_age_months=10,
+            age_recorded_on=(kst_now()-timedelta(days=14)).date()))
+        session.commit()
+
+
 def meal(at=None, **extra):
     return {'id':str(uuid4()), 'kind':'feeding', 'meal_type':'meal',
             'started_at':stamp(at or kst_now()-timedelta(minutes=10)), 'ended_at':None, **extra}
@@ -91,7 +100,7 @@ def test_snapshot_scoping_clipping_and_disabled_summary(db, client, auth):
 
 def test_recent_meal_changes_only_close_model_tie_and_keeps_original():
     raw=model(); original=deepcopy(raw)
-    snapshot={'enabled':True,'policyVersion':'care-10m-v1','minutesSinceMeal':10}
+    snapshot={'enabled':True,'policyVersion':'care-age-v2','minutesSinceMeal':10}
     adjusted=apply_care_context(raw,snapshot)
     assert raw==original
     assert adjusted['need']=='sleep'
@@ -106,7 +115,7 @@ def test_no_records_quiet_stable_and_missing_model_evidence_never_create_a_label
     raw=model()
     for snapshot in [None,{'enabled':False,'reason':'no_records'}]:
         assert apply_care_context(raw,snapshot)['topPredictions']==raw['topPredictions']
-    snapshot={'enabled':True,'policyVersion':'care-10m-v1','minutesSinceMeal':10}
+    snapshot={'enabled':True,'policyVersion':'care-age-v2','minutesSinceMeal':10}
     raw.update(need='stable',normalOverride=True)
     assert not apply_care_context(raw,snapshot)['careContext']['applied']
     raw=model();raw['topPredictions']=[raw['topPredictions'][1]]

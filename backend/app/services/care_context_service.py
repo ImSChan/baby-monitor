@@ -1,4 +1,4 @@
-"""10-month care context. Source guidance is not an hourly diagnostic rule.
+"""Age-aware care context. Source guidance is not an hourly diagnostic rule.
 
 Personal timing heuristics only break close model ties; no record creates a
 label, a medical recommendation, or a training target. Version snapshots remain
@@ -14,9 +14,12 @@ from sqlmodel import select
 from app.models import CareRecord, CareProfile
 from app.utils.time import KST, kst_now
 
-POLICY_VERSION = 'care-10m-v1'
+from app.services.child_profile_service import age_months, age_policy
+
+POLICY_VERSION = 'care-age-v2'
 SOURCES = ['https://www.childcare.go.kr/?menuno=449', 'https://www.childcare.go.kr/?menuno=451',
-           'https://www.cdc.gov/sleep/about/']
+           'https://www.cdc.gov/sleep/about/', 'https://www.who.int/health-topics/complementary-feeding',
+           'https://www.nichd.nih.gov/health/topics/sleep/conditioninfo/how-much']
 
 
 def to_kst(value):
@@ -39,7 +42,7 @@ def typical(gaps):
 
 def build_care_snapshot(session, user_id, reference, allowed=True, now=None, respect_preference=True):
     now = now or kst_now()
-    snapshot = {'policyVersion': POLICY_VERSION, 'ageMonths': 10, 'asOf': stamp(reference),
+    snapshot = {'policyVersion': POLICY_VERSION, 'ageMonths': None, 'asOf': stamp(reference),
                 'sources': SOURCES, 'enabled': False, 'reason': 'capture_time_unknown',
                 'recordedSleepMinutes24h': None, 'sleepCoverage': 'not_confirmed'}
     if not allowed:
@@ -47,6 +50,9 @@ def build_care_snapshot(session, user_id, reference, allowed=True, now=None, res
     if respect_preference and session.get_bind().dialect.name == 'postgresql':
         session.execute(text('SELECT pg_advisory_xact_lock(:key)'), {'key': 910000000 + user_id})
     profile = session.get(CareProfile, user_id)
+    months = age_months(profile, reference)
+    policy = age_policy(months)
+    snapshot.update(ageMonths=months, ageEstimated=months is not None, agePolicy=policy)
     if respect_preference and profile and not profile.context_enabled:
         return {**snapshot, 'reason': 'parent_disabled'}
     if reference > now + timedelta(minutes=2) or reference < now - timedelta(days=30):
@@ -58,9 +64,15 @@ def build_care_snapshot(session, user_id, reference, allowed=True, now=None, res
     rows = list(reversed(rows))
     if not rows:
         return {**snapshot, 'reason': 'no_records'}
-    meals = [r for r in rows if r.kind == 'feeding' and r.meal_type in {'milk', 'meal'}]
+    # Never compare habits across developmental stages, or combine milk/solid intervals.
+    same_stage = [r for r in rows if age_policy(age_months(profile, r.started_at))['stage'] == policy['stage']]
+    same_stage_ids = {r.id for r in same_stage}
+    meal_types = {'milk'} if months is not None and months < 6 else {'milk', 'meal'}
+    meals = [r for r in same_stage if r.kind == 'feeding' and r.meal_type in meal_types]
+    if meals:
+        meals = [r for r in meals if r.meal_type == meals[-1].meal_type]
     sleeps = [r for r in rows if r.kind == 'sleep' and r.ended_at]
-    ended = [r for r in sleeps if r.ended_at <= reference]
+    ended = [r for r in sleeps if r.ended_at <= reference and r.id in same_stage_ids]
     meal_gaps = [(b.started_at - a.started_at).total_seconds() / 60 for a, b in zip(meals, meals[1:])
                  if a.started_at.date() == b.started_at.date()]
     awake_gaps = [(b.started_at - a.ended_at).total_seconds() / 60 for a, b in zip(ended, ended[1:])
@@ -76,7 +88,8 @@ def build_care_snapshot(session, user_id, reference, allowed=True, now=None, res
             merged[-1] = (merged[-1][0], max(b, merged[-1][1]))
         else:
             merged.append((a, b))
-    return {**snapshot, 'enabled': True, 'reason': 'records_available',
+    return {**snapshot, 'enabled': policy['timingEligible'],
+        'reason': 'child_age_missing' if months is None else ('records_available' if policy['timingEligible'] else 'age_timing_not_supported'),
         'lastMealAt': stamp(last_meal.started_at) if last_meal else None,
         'minutesSinceMeal': round((reference - last_meal.started_at).total_seconds() / 60) if last_meal else None,
         'lastSleepEndedAt': stamp(last_sleep.ended_at) if last_sleep else None,
