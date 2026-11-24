@@ -22,3 +22,9 @@ it('does not repeat the stable winner or invent alternative scores for a quiet o
  show({need:'stable',confidence:1,topPredictions:[{need:'stable',confidence:1}]})
  expect(screen.getByRole('heading',{name:'안정'})).toBeTruthy();expect(screen.getAllByText('기록 없음')).toHaveLength(2)
 })
+
+it('never presents an old alert score as an average before samples are available',()=>{
+ show({need:'care',confidence:null,aggregationPending:true,topPredictions:[]})
+ expect(screen.getByRole('heading',{name:'불편함'})).toBeTruthy()
+ expect(screen.getByText('평균 확인 중')).toBeTruthy();expect(screen.queryByText('87%')).toBeNull()
+})

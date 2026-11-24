@@ -82,21 +82,23 @@ def main():
             return {'access_token': auth.create_access_token(user_id), 'mock': True}
 
         @app.post('/mock/observe')
-        def observe(state: str = 'care', count: int = 1):
+        def observe(state: str = 'care', count: int = 1, confidence: float = .87,
+                    second_confidence: float = .20, third_confidence: float = .12):
             from fastapi import HTTPException
             labels = {'care':'불편함', 'feeding':'배고픔', 'sleep':'졸림', 'stable':'안정'}
-            if state not in labels or not 1 <= count <= 10:
+            if (state not in labels or not 1 <= count <= 10
+                    or not all(0 <= value <= 1 for value in (confidence,second_confidence,third_confidence))):
                 raise HTTPException(422, 'Local fixture states only, count 1..10')
             ids = []
             for _ in range(count):
-                candidates = [{'need':state, 'emotion':labels[state], 'confidence':.87}]
+                candidates = [{'need':state, 'emotion':labels[state], 'confidence':confidence}]
                 candidates += [{'need':key, 'emotion':labels[key], 'confidence':score}
-                    for key, score in zip([key for key in ('care','feeding','sleep') if key != state], (.20,.12))]
+                    for key, score in zip([key for key in ('care','feeding','sleep') if key != state], (second_confidence,third_confidence))]
                 with Session(engine) as session:
                     event = EmotionEvent(user_id=1, emotion=labels[state], need=state,
-                        confidence=.87, captured_at=kst_now(), top_predictions=candidates)
+                        confidence=confidence, captured_at=kst_now(), top_predictions=candidates)
                     session.add(event); session.flush()
-                    result = {'emotion':event.emotion,'need':state,'confidence':.87,
+                    result = {'emotion':event.emotion,'need':state,'confidence':confidence,
                         'topPredictions':candidates,'emotionEventId':event.id}
                     rid = str(uuid4()); directory = inference.UPLOAD_ROOT / rid; directory.mkdir()
                     (directory / 'metadata.json').write_text(json.dumps({'request_id':rid,

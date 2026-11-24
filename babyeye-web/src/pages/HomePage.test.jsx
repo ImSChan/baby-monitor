@@ -4,7 +4,7 @@ import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testi
 import { MemoryRouter } from 'react-router-dom'
 import HomePage from './HomePage'
 const mock = vi.hoisted(() => ({ notification: vi.fn(), history: vi.fn(), live: vi.fn(), user: { id: 1 }, token: 'one' }))
-vi.mock('../api/notificationApi', () => ({ getLatestStateNotification: mock.notification }))
+vi.mock('../api/representativeApi', () => ({ getRepresentativeState: mock.notification }))
 vi.mock('../api/emotionApi', () => ({ getEmotionHistory: mock.history }))
 vi.mock('../api/liveApi', () => ({ getLiveSessions: mock.live }))
 vi.mock('../contexts/AuthContext', () => ({ useAuth: () => ({ user: mock.user }) }))
@@ -46,7 +46,7 @@ it('places the live hub after the baby summary and before history without the tr
 it('shows an honest empty state with working analysis entry points', async () => {
   mock.notification.mockResolvedValue(null); mock.history.mockResolvedValue([])
   render(view())
-  await screen.findByText('아직 상태 알림이 없어요')
+  await screen.findByText('3회 연속 감지 대기 중')
   expect(screen.getByRole('link', { name: '홈캠 분석 시작' }).getAttribute('href')).toBe('/camera-host')
   expect(screen.queryByRole('region',{name:'영상으로 분석하기'})).toBeNull()
   expect(screen.queryByRole('link',{name:/지난 12시간 돌아보기/})).toBeNull()
@@ -74,7 +74,7 @@ it('distinguishes an unavailable server from an account with no analyses', async
   mock.notification.mockRejectedValue(new Error('offline')); mock.history.mockRejectedValue(new Error('offline'))
   render(view())
   await screen.findByText('대표 상태를 불러오지 못했어요')
-  expect(screen.queryByText('아직 상태 알림이 없어요')).toBeNull()
+  expect(screen.queryByText('3회 연속 감지 대기 중')).toBeNull()
 })
 
 it('refreshes analysis even when no live viewer is connected', async () => {
@@ -108,18 +108,18 @@ it('offers a direct link for a camera returned by this account',async()=>{
   expect(screen.getByRole('link',{name:'홈캠 시작'}).getAttribute('href')).toBe('/camera-host')
 })
 
-it('uses an old read notification instead of newer single analysis history',async()=>{
+it('uses an older confirmed triplet instead of newer single analysis history',async()=>{
   mock.notification.mockResolvedValue({...result(),need:'care',emotion:'불편함',notificationId:42,created_at:'2025-01-01T10:00:00'})
   render(view());await screen.findByRole('heading',{name:'불편함',exact:true})
   expect(screen.getByRole('link',{name:'알림에서 실제 상태 알려주기'}).getAttribute('href')).toBe('/notifications/42')
   expect(screen.queryByText('아기 상태')).toBeNull();expect(screen.queryByText('돌봄이 필요한 것 같아요')).toBeNull()
 })
-it('does not replace a missing notification with single analysis history',async()=>{
+it('does not replace a missing triplet with single analysis history',async()=>{
   mock.notification.mockResolvedValue(null)
-  render(view());await screen.findByText('아직 상태 알림이 없어요')
+  render(view());await screen.findByText('3회 연속 감지 대기 중')
   expect(screen.queryByRole('heading',{name:'배고픔',exact:true})).toBeNull()
 })
-it('shows an existing alert without needing the new dashboard API',async()=>{
+it('shows an averaged representative without needing the dashboard API',async()=>{
   mock.notification.mockResolvedValue({...result(),notificationId:1});render(view())
   await screen.findByRole('heading',{name:'배고픔',exact:true})
   expect(screen.queryByText('대표 상태를 불러오지 못했어요')).toBeNull()

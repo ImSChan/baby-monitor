@@ -72,3 +72,61 @@ def test_confirmation_uses_completion_order_not_a_late_uploaded_capture_date(db)
     with Session(db) as session:
         row=session.get(EmotionEvent,ids[-1]);row.captured_at=kst_now()-timedelta(days=7);session.add(row);session.commit()
     assert confirmed(db)==ids[-1]
+
+
+def test_averages_same_states_across_rank_swaps_not_just_latest_scores(db):
+    from app.services.confirmed_state_service import latest_confirmed_summary
+    vectors=[(.9,.02,.08),(.8,.35,.05),(.7,.1,.2)]
+    ids=[]
+    with Session(db) as session:
+        for feeding,care,sleep in vectors:
+            row=EmotionEvent(user_id=1,need='feeding',emotion='배고픔',confidence=feeding,
+                top_predictions=[{'need':'feeding','confidence':feeding},{'need':'care','confidence':care},{'need':'sleep','confidence':sleep}])
+            session.add(row);session.flush();ids.append(row.id)
+        session.commit();result=latest_confirmed_summary(session,1)
+        assert result['sampleIds']==ids and result['sampleCount']==3
+        assert result['confidence']==.8
+        assert [(item['need'],item['confidence']) for item in result['topPredictions']]==[
+            ('feeding',.8),('care',.156667),('sleep',.11)]
+
+
+def test_missing_candidate_score_is_not_filled_with_zero(db):
+    from app.services.confirmed_state_service import latest_confirmed_summary
+    ids=append(db,['feeding']*3)
+    with Session(db) as session:
+        row=session.get(EmotionEvent,ids[0]);row.top_predictions=[{'need':'sleep','confidence':.1}];session.add(row);session.commit()
+        result=latest_confirmed_summary(session,1)
+        assert result['confidence']==.87
+        assert result['candidateCoverage']['care']==0
+        assert [item['need'] for item in result['topPredictions']]==['feeding','sleep']
+
+
+def test_representative_api_auth_scope_and_readonly_average(db,client,auth):
+    from app.routers import emotions
+    client.app.include_router(emotions.router,prefix='/api/emotions')
+    ids=append(db,['care']*3)
+    assert client.get('/api/emotions/representative').status_code==403
+    result=client.get('/api/emotions/representative',headers=auth(1)).json()
+    assert result['sampleIds']==ids and result['scoreBasis']=='three_consecutive_mean'
+    assert client.get('/api/emotions/representative',headers=auth(2)).json() is None
+    with Session(db) as session:
+        assert session.get(EmotionEvent,ids[-1]).confidence==.87
+
+
+def test_summary_uses_exact_latest_rolling_three_and_no_newer_single_state(db):
+    from app.services.confirmed_state_service import latest_confirmed_summary
+    ids=append(db,['care']*4)
+    append(db,['feeding','feeding'])
+    with Session(db) as session:
+        result=latest_confirmed_summary(session,1)
+        assert result['sampleIds']==ids[-3:] and result['need']=='care'
+
+
+def test_stable_average_does_not_invent_alternatives(db):
+    from app.services.confirmed_state_service import latest_confirmed_summary
+    ids=append(db,['stable']*3)
+    with Session(db) as session:
+        for uid in ids:
+            row=session.get(EmotionEvent,uid);row.confidence=1;row.top_predictions=[{'need':'stable','confidence':1}];session.add(row)
+        session.commit();result=latest_confirmed_summary(session,1)
+        assert result['confidence']==1 and len(result['topPredictions'])==1

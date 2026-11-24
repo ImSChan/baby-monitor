@@ -5,8 +5,15 @@ from app.database import get_session
 from app.deps import get_current_user_id
 from app.models import Camera, EmotionEvent
 from app.schemas import EmotionEventCreate
+from app.services.confirmed_state_service import latest_confirmed_summary
 
 router = APIRouter()
+
+
+@router.get('/representative')
+def get_representative_state(session: Session = Depends(get_session),
+                             current_user_id: int = Depends(get_current_user_id)):
+    return latest_confirmed_summary(session, current_user_id)
 
 
 @router.get("/current")
