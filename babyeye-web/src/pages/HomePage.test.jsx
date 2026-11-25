@@ -99,7 +99,7 @@ it('offers a direct link for a camera returned by this account',async()=>{
 it('uses an older confirmed triplet instead of newer single analysis history',async()=>{
   mock.notification.mockResolvedValue({...result(),need:'care',emotion:'불편함',notificationId:42,created_at:'2025-01-01T10:00:00'})
   render(view());await screen.findByRole('heading',{name:'불편함',exact:true})
-  expect(screen.getByRole('link',{name:'알림에서 실제 상태 알려주기'}).getAttribute('href')).toBe('/notifications/42')
+  expect(screen.queryByRole('link',{name:'알림에서 실제 상태 알려주기'})).toBeNull()
   expect(screen.queryByText('아기 상태')).toBeNull();expect(screen.queryByText('돌봄이 필요한 것 같아요')).toBeNull()
 })
 it('does not replace a missing triplet with single analysis history',async()=>{

@@ -1,5 +1,5 @@
 import { Link } from 'react-router-dom'
-import { ArrowUpRight, Clock3 } from 'lucide-react'
+import { Clock3 } from 'lucide-react'
 import { analysisTime, babyStatus, formatAnalysisTime, predictions, score } from '../../utils/babyStatus'
 import CareContextNote from '../care/CareContextNote'
 
@@ -18,6 +18,5 @@ export default function BabyStatusOverview({ result, loading, unavailable }) {
       <p className="mt-3 text-[10px] text-slate-500">{result.aggregationPending?'3건 평균 기록을 확인하기 전에는 점수를 표시하지 않아요.':'AI 예측 점수 · 같은 상태로 연속 감지된 3건의 평균'}</p>
     </>:<div className="py-2"><p className="text-sm text-slate-300">{loading?'분석 상태를 확인하고 있어요':unavailable?'대표 상태를 불러오지 못했어요':'3회 연속 감지 대기 중'}</p><p className="mt-2 text-xs leading-5 text-slate-500">{unavailable?'연결 상태를 확인하고 다시 시도해주세요.':'같은 상태가 3회 연속 감지되면 해당 3건의 평균 점수를 표시해요.'}</p>{!loading&&<Link to="/camera-host" className="mt-4 inline-flex rounded-xl bg-blue-600 px-4 py-3 text-sm font-semibold">홈캠 분석 시작</Link>}</div>}
     <CareContextNote context={result?.careContext}/>
-    {result&&<Link to={result.notificationId?`/notifications/${result.notificationId}`:'/notifications'} className="mt-4 flex items-center justify-between border-t border-white/10 pt-4 text-sm font-medium text-blue-200">알림에서 실제 상태 알려주기<ArrowUpRight size={17}/></Link>}
   </section>
 }
