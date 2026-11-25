@@ -26,3 +26,7 @@ button {
 .safe-bottom {
   padding-bottom: env(safe-area-inset-bottom);
 }
+
+.score-help-dialog::backdrop {
+  background: rgb(0 0 0 / 22%);
+}

@@ -1,8 +1,14 @@
 import React from 'react'
-import {afterEach,it,expect} from 'vitest'
+import {afterEach,beforeAll,afterAll,it,expect,vi} from 'vitest'
 import {cleanup,render,screen,within,fireEvent} from '@testing-library/react'
 import {MemoryRouter} from 'react-router-dom'
 import BabyStatusOverview from './BabyStatusOverview'
+beforeAll(()=>{
+ vi.stubGlobal('HTMLDialogElement',HTMLDialogElement)
+ HTMLDialogElement.prototype.showModal=vi.fn(function(){this.setAttribute('open','')})
+ HTMLDialogElement.prototype.close=vi.fn(function(){this.removeAttribute('open')})
+})
+afterAll(()=>{delete HTMLDialogElement.prototype.showModal;delete HTMLDialogElement.prototype.close;vi.unstubAllGlobals()})
 afterEach(cleanup)
 const show=result=>render(<MemoryRouter><BabyStatusOverview result={result}/></MemoryRouter>)
 it('shows classification, small primary score and two ranked alternatives from one confirmed snapshot',()=>{
@@ -39,7 +45,7 @@ it('fills the gauge with the bound probability and hides the explanation until r
  fireEvent.click(help)
  expect(help.getAttribute('aria-expanded')).toBe('true')
  expect(screen.getByText('AI 예측 점수 · 같은 상태로 연속 감지된 3건의 평균')).toBeTruthy()
- fireEvent.keyDown(document,{key:'Escape'})
+ fireEvent(screen.getByRole('dialog'),new Event('cancel',{cancelable:true}))
  expect(help.getAttribute('aria-expanded')).toBe('false')
  fireEvent.click(help);fireEvent.pointerDown(document.body)
  expect(help.getAttribute('aria-expanded')).toBe('false')
@@ -50,4 +56,21 @@ it('uses a warm attention color and never draws a percentage for an unknown aver
  view.unmount();show({need:'feeding',confidence:.82,aggregationPending:true})
  expect(screen.getByRole('img',{name:'예측 점수 확인 중'}).querySelector('[stroke-dasharray]')).toBeNull()
  expect(screen.queryByText('82%')).toBeNull()
+})
+
+it('portals the help outside the card and dismisses it with the close button or backdrop',()=>{
+ show({need:'stable',confidence:.67})
+ const trigger=screen.getByRole('button',{name:'AI 예측 점수 설명'})
+ fireEvent.click(trigger)
+ const dialog=screen.getByRole('dialog',{name:'AI 예측 점수'})
+ expect(screen.getByRole('region',{name:'최근 아기 상태'}).contains(dialog)).toBe(false)
+ expect(dialog.parentElement).toBe(document.body)
+ fireEvent.click(screen.getByText('AI 예측 점수 · 같은 상태로 연속 감지된 3건의 평균'))
+ expect(screen.getByRole('dialog')).toBeTruthy()
+ fireEvent.click(screen.getByRole('button',{name:'도움말 닫기'}))
+ expect(screen.queryByRole('dialog')).toBeNull()
+ expect(document.activeElement).toBe(trigger)
+ fireEvent.click(trigger)
+ fireEvent.click(screen.getByRole('dialog'),{clientX:-10,clientY:-10})
+ expect(screen.queryByRole('dialog')).toBeNull()
 })

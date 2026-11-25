@@ -1,6 +1,7 @@
 import { useEffect, useId, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { Link } from 'react-router-dom'
-import { Clock3, HelpCircle } from 'lucide-react'
+import { Clock3, HelpCircle, X } from 'lucide-react'
 import { analysisTime, babyStatus, formatAnalysisTime, predictions, score } from '../../utils/babyStatus'
 import CareContextNote from '../care/CareContextNote'
 
@@ -32,19 +33,32 @@ function StatusGauge({ state, value, theme }) {
 
 function ScoreHelp({ pending }) {
   const [open, setOpen] = useState(false)
-  const id = useId(), container = useRef(null), button = useRef(null)
+  const id = useId(), dialog = useRef(null), button = useRef(null)
   useEffect(() => {
     if (!open) return
-    const outside = event => { if (!container.current?.contains(event.target)) setOpen(false) }
-    const escape = event => { if (event.key === 'Escape') { setOpen(false); button.current?.focus() } }
+    const popup = dialog.current
+    popup.showModal()
+    const outside = event => {
+      if (!popup.contains(event.target) && !button.current?.contains(event.target)) setOpen(false)
+    }
     document.addEventListener('pointerdown', outside)
-    document.addEventListener('keydown', escape)
-    return () => { document.removeEventListener('pointerdown', outside); document.removeEventListener('keydown', escape) }
+    return () => {
+      document.removeEventListener('pointerdown', outside)
+      popup.close()
+      button.current?.focus({ preventScroll: true })
+    }
   }, [open])
-  return <div ref={container} className="contents">
-    <button ref={button} type="button" aria-label="AI 예측 점수 설명" aria-expanded={open} aria-controls={id} onClick={() => setOpen(value => !value)} className="inline-flex h-8 w-8 items-center justify-center rounded-full text-slate-400 transition hover:bg-white/10 hover:text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-300"><HelpCircle size={17}/></button>
-    {open && <p id={id} className="order-last mt-1 basis-full rounded-xl border border-slate-600 bg-slate-800 p-3 text-xs leading-5 text-slate-200 shadow-lg">{pending ? '3건 평균 기록을 확인하기 전에는 점수를 표시하지 않아요.' : 'AI 예측 점수 · 같은 상태로 연속 감지된 3건의 평균'}</p>}
-  </div>
+  return <>
+    <button ref={button} type="button" aria-label="AI 예측 점수 설명" aria-haspopup="dialog" aria-expanded={open} aria-controls={open ? id : undefined} onClick={() => setOpen(value => !value)} className="inline-flex h-8 w-8 items-center justify-center rounded-full text-slate-400 transition hover:bg-white/10 hover:text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-300"><HelpCircle size={17}/></button>
+    {open && createPortal(<dialog ref={dialog} id={id} aria-labelledby={id + '-title'} aria-describedby={id + '-description'} onCancel={event => { event.preventDefault(); setOpen(false) }} onClick={event => {
+      if (event.target !== event.currentTarget) return
+      const rect = event.currentTarget.getBoundingClientRect()
+      if (event.clientX < rect.left || event.clientX > rect.right || event.clientY < rect.top || event.clientY > rect.bottom) setOpen(false)
+    }} className="score-help-dialog fixed inset-0 m-auto max-h-[calc(100dvh-3rem)] w-[calc(100%-3rem)] max-w-xs overflow-y-auto rounded-2xl border border-white/60 bg-white/90 p-5 text-slate-800 shadow-[0_16px_56px_rgba(0,0,0,0.2)] backdrop-blur-xl">
+      <div className="mb-2 flex items-center justify-between gap-3"><h3 id={id + '-title'} className="text-sm font-bold">AI 예측 점수</h3><button type="button" aria-label="도움말 닫기" onClick={() => setOpen(false)} className="-mr-1 flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-slate-500 transition hover:bg-slate-900/5 focus-visible:outline focus-visible:outline-2 focus-visible:outline-blue-600"><X size={18}/></button></div>
+      <p id={id + '-description'} className="break-keep text-sm leading-6 text-slate-600">{pending ? '3건 평균 기록을 확인하기 전에는 점수를 표시하지 않아요.' : 'AI 예측 점수 · 같은 상태로 연속 감지된 3건의 평균'}</p>
+    </dialog>, document.body)}
+  </>
 }
 
 export default function BabyStatusOverview({ result, loading, unavailable }) {
