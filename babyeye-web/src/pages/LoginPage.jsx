@@ -47,7 +47,7 @@ export default function LoginPage() {
         </div>
 
         <h1 className="text-3xl font-bold text-white">
-          BabyEye
+          효정아 사랑해
         </h1>
 
         <p className="mt-3 text-sm text-slate-400">
