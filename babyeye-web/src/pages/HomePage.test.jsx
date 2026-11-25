@@ -1,6 +1,6 @@
 import React from 'react'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
-import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+import { act, cleanup, render, screen } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import HomePage from './HomePage'
 const mock = vi.hoisted(() => ({ notification: vi.fn(), history: vi.fn(), live: vi.fn(), user: { id: 1 }, token: 'one' }))
@@ -21,26 +21,15 @@ beforeEach(() => {
   mock.live.mockResolvedValue([])
 })
 
-it('places the live hub after the baby summary and before history without the training card', async () => {
-  render(view())
-  await screen.findByRole('heading',{name:'배고픔',exact:true})
+it('shows only the summary and live hub without fetching the removed history panel',async()=>{
+  render(view());await screen.findByRole('heading',{name:'배고픔',exact:true})
+  const overview=screen.getByRole('region',{name:'최근 아기 상태'}),live=screen.getByRole('region',{name:'라이브 확인'})
+  expect(overview.compareDocumentPosition(live)&Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+  expect(screen.queryByRole('region',{name:'최근 분석 흐름'})).toBeNull()
+  expect(screen.queryByRole('region',{name:'실시간 분석 현황'})).toBeNull()
+  expect(mock.history).not.toHaveBeenCalled()
   expect(screen.getByRole('link',{name:'설정',exact:true}).getAttribute('href')).toBe('/settings')
   expect(screen.getByRole('button',{name:'알림',exact:true}).disabled).toBe(false)
-  const overview = screen.getByRole('region', { name: '최근 아기 상태' })
-  const flow = screen.getByRole('region', { name: '최근 분석 흐름' })
-  const live = screen.getByRole('region', { name: '라이브 확인' })
-  expect(overview.compareDocumentPosition(flow) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
-  expect(overview.compareDocumentPosition(live) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
-  expect(live.compareDocumentPosition(flow) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
-  expect(screen.queryByText('개인화 학습 상태')).toBeNull()
-  expect(screen.getAllByRole('region',{name:'라이브 확인'})).toHaveLength(1)
-  expect(within(overview).getByText('82%')).toBeTruthy()
-  expect(screen.getByText('12%')).toBeTruthy()
-  expect(screen.getByText('최근 6건 기준 · 분석 횟수')).toBeTruthy()
-  expect(screen.queryByText('현재 아기가 우는 이유')).toBeNull()
-  expect(document.querySelector('video')).toBeNull()
-  fireEvent.click(screen.getByRole('button', { name: '분석 기록 6건 모두 보기' }))
-  expect(screen.getByRole('list').children.length).toBe(6)
 })
 
 it('shows an honest empty state with working analysis entry points', async () => {
@@ -54,20 +43,19 @@ it('shows an honest empty state with working analysis entry points', async () =>
   expect(screen.getByRole('link', { name: '라이브 보기' }).getAttribute('href')).toBe('/live')
 })
 
-it('keeps the primary analysis visible when history and live status fail', async () => {
+it('keeps the primary analysis visible when live status fails', async () => {
   mock.history.mockRejectedValue(new Error('offline')); mock.live.mockRejectedValue(new Error('offline'))
   render(view())
   await screen.findByRole('heading',{name:'배고픔',exact:true})
-  expect(screen.getByText('최근 기록을 갱신하지 못했어요.')).toBeTruthy()
   expect(screen.getByText(/연결 상태를 확인하지 못했어요/)).toBeTruthy()
-  expect(screen.getByRole('button', { name: '분석 새로고침' })).toBeTruthy()
+  expect(screen.getByRole('button', { name: '홈캠 연결 새로고침' })).toBeTruthy()
 })
 
 it('does not wait for a hanging live server to show the analysis', async () => {
   mock.live.mockImplementationOnce(() => new Promise(() => {}))
   render(view())
   await screen.findByRole('heading',{name:'배고픔',exact:true})
-  await waitFor(() => expect(screen.getByRole('button', { name: '분석 새로고침' }).disabled).toBe(false))
+  expect(screen.getByRole('region',{name:'최근 아기 상태'})).toBeTruthy()
 })
 
 it('distinguishes an unavailable server from an account with no analyses', async () => {

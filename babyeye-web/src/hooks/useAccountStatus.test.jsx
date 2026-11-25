@@ -31,3 +31,13 @@ it('cancels pending requests and timers on leaving the page', async () => {
   unmount()
   expect(signal.aborted).toBe(true); expect(vi.getTimerCount()).toBe(0)
 })
+
+it('refreshes live history at its five-second interval and on notification events',async()=>{
+ mock.get.mockResolvedValue([{id:1}])
+ const {result}=renderHook(()=>useAccountStatus('/api/emotions/history',{intervalMs:5000}))
+ await act(flush);expect(result.current.data).toEqual([{id:1}])
+ mock.get.mockResolvedValue([{id:2}]);await act(async()=>vi.advanceTimersByTimeAsync(5000))
+ expect(result.current.data).toEqual([{id:2}])
+ mock.get.mockResolvedValue([{id:3}]);await act(async()=>{window.dispatchEvent(new Event('babyeye:notifications'));await flush()})
+ expect(result.current.data).toEqual([{id:3}])
+})

@@ -13,6 +13,7 @@ import { Link, useSearchParams } from 'react-router-dom'
 import useVideoFreshness from '../hooks/useVideoFreshness'
 import useAccountStatus from '../hooks/useAccountStatus'
 import LiveHealthCard from '../components/status/LiveHealthCard'
+import LiveAnalysisHistory from '../components/live/LiveAnalysisHistory'
 
 const initialForm = {
   name: '',
@@ -147,6 +148,7 @@ function LivePage() {
         <Card>
           <p className='text-sm text-slate-300'>카메라 정보를 불러오는 중입니다...</p>
         </Card>
+        <LiveAnalysisHistory />
       </main>
     )
   }
@@ -160,6 +162,7 @@ function LivePage() {
           <p className='mt-2 text-sm text-slate-400'>{error.message}</p>
           <button onClick={loadPageData} className='mt-3 text-blue-300'>다시 불러오기</button>
         </Card>
+        <LiveAnalysisHistory />
       </main>
     )
   }
@@ -209,6 +212,7 @@ function LivePage() {
         </div>
       </section>
 
+      <LiveAnalysisHistory />
       <LiveHealthCard freshness={freshness} lastCompletedAt={analysis.data?.lastCompletedAt} analysisError={analysis.error} analysisLoading={!analysis.data && !analysis.error} />
       {selectedSession && <div className="mb-5 flex gap-2">
         <button onClick={() => remoteVideoRef.current?.play()?.catch(() => {})} className="rounded-xl bg-slate-800 px-4 py-3 text-sm">영상 재생</button>

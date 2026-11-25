@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { apiGet } from '../api/client'
 import { useAuth } from '../contexts/AuthContext'
 
-export default function useAccountStatus(path) {
+export default function useAccountStatus(path, { intervalMs = 15000 } = {}) {
   const { user } = useAuth()
   const [state, setState] = useState({ owner: null, data: null, error: '', refreshedAt: null })
   const [attempt, setAttempt] = useState(0)
@@ -21,12 +21,12 @@ export default function useAccountStatus(path) {
       } finally { clearTimeout(timeout); inFlight = false }
     }
     void load()
-    const timer = setInterval(load, 15000)
+    const timer = setInterval(load, intervalMs)
     document.addEventListener('visibilitychange', load)
     window.addEventListener('babyeye:notifications', load)
     return () => { active = false; clearInterval(timer); clearTimeout(timeout); controller?.abort();
       document.removeEventListener('visibilitychange', load); window.removeEventListener('babyeye:notifications', load) }
-  }, [path, user?.id, attempt])
+  }, [path, user?.id, attempt, intervalMs])
   const visible = state.owner === user?.id ? state : { data: null, error: '', refreshedAt: null }
   return { ...visible, retry: () => setAttempt(value => value + 1) }
 }

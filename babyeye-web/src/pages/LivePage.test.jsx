@@ -22,3 +22,10 @@ it('does not connect an unknown or other-account session supplied in the URL',as
  render(<MemoryRouter initialEntries={['/live?session=not-mine']}><LivePage/></MemoryRouter>)
  await screen.findByText('아기방 홈캠');expect(mock.start).not.toHaveBeenCalled()
 })
+
+it('places the analysis history panel in the live viewer',async()=>{
+ render(<MemoryRouter><LivePage/></MemoryRouter>)
+ await screen.findByText('온라인 라이브 세션')
+ expect(screen.getByRole('region',{name:'실시간 분석 현황'})).toBeTruthy()
+ expect(screen.getByText('5초마다 갱신 · 현재 계정의 최근 최대 20건')).toBeTruthy()
+})
