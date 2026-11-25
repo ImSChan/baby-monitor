@@ -1,6 +1,6 @@
 import React from 'react'
 import {afterEach,it,expect} from 'vitest'
-import {cleanup,render,screen,within} from '@testing-library/react'
+import {cleanup,render,screen,within,fireEvent} from '@testing-library/react'
 import {MemoryRouter} from 'react-router-dom'
 import BabyStatusOverview from './BabyStatusOverview'
 afterEach(cleanup)
@@ -27,4 +27,27 @@ it('never presents an old alert score as an average before samples are available
  show({need:'care',confidence:null,aggregationPending:true,topPredictions:[]})
  expect(screen.getByRole('heading',{name:'불편함'})).toBeTruthy()
  expect(screen.getByText('평균 확인 중')).toBeTruthy();expect(screen.queryByText('87%')).toBeNull()
+})
+
+it('fills the gauge with the bound probability and hides the explanation until requested',()=>{
+ show({need:'stable',confidence:.67})
+ const gauge=screen.getByRole('img',{name:'예측 점수 67%'})
+ expect(gauge.querySelector('[stroke-dasharray]').getAttribute('stroke-dasharray')).toBe('67 100')
+ expect(gauge.querySelector('[stroke-dasharray]').getAttribute('stroke')).toBe('#34D399')
+ expect(screen.queryByText('AI 예측 점수 · 같은 상태로 연속 감지된 3건의 평균')).toBeNull()
+ const help=screen.getByRole('button',{name:'AI 예측 점수 설명'})
+ fireEvent.click(help)
+ expect(help.getAttribute('aria-expanded')).toBe('true')
+ expect(screen.getByText('AI 예측 점수 · 같은 상태로 연속 감지된 3건의 평균')).toBeTruthy()
+ fireEvent.keyDown(document,{key:'Escape'})
+ expect(help.getAttribute('aria-expanded')).toBe('false')
+ fireEvent.click(help);fireEvent.pointerDown(document.body)
+ expect(help.getAttribute('aria-expanded')).toBe('false')
+})
+it('uses a warm attention color and never draws a percentage for an unknown average',()=>{
+ const view=show({need:'feeding',confidence:.82})
+ expect(screen.getByRole('img',{name:'예측 점수 82%'}).querySelector('[stroke-dasharray]').getAttribute('stroke')).toBe('#FBBF24')
+ view.unmount();show({need:'feeding',confidence:.82,aggregationPending:true})
+ expect(screen.getByRole('img',{name:'예측 점수 확인 중'}).querySelector('[stroke-dasharray]')).toBeNull()
+ expect(screen.queryByText('82%')).toBeNull()
 })
